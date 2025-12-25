@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang = "en">
+    <head>
+        <meta charset = "UTF-8">
+        <title>Error Page</title>
+    </head>
+    <body>
+        <main>
+            <div class = "title"><h1>You have encountered an error</h1></div>
+            <div class = "error_description">
+                <div class = "error_id"><h3>Error code: {{ error_code }}</h3></div>
+                <div class = "error_desc">
+                    {% if error_code == -1 %}
+                        <h3>Connection timed out or invalid URL</h3>
+                    {% elif error_code == -2 %}
+                        <h3>The page couldn't be accessed</h3>
+                    {% endif %}
+                </div>
+            </div>
+        </main>
+    </body>
+</html>
