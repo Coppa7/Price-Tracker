@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Product Page</title>
+</head>
+<body>
+    <div class = "page_title"><h1>Product Page</h1></div>
+    <div class = "product_container">
+        <div class = "product_image">
+            {% if img_src != "N/A" %}
+                <img src="{{ img_src }}" alt = "product">
+            {% endif %}
+            <!-- Add else condition -->
+        </div>
+        <div class = "product_details">
+            <p class = "price_text"><h3>Price: {{ price_whole }}{{ price_fraction }}</h3></p>
+            <p class = "discount_text"><h3>Discount: {{ discount }}</h3></p>
+        </div>
+    </div>
+</body>
+</html>
