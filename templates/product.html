@@ -36,10 +36,9 @@
                     })
                     .then(response => response.json())
                     .then(data => {
-                        if (data.status === "ok"){
-                            const btn = document.getElementById("bookmark_button");
-                            btn.innerText = "✅ Booked!";
-                        }
+                        const btn = document.getElementById("bookmark_button");
+                        if (data.status === "ok")   btn.innerText = "Booked!";
+                        else if (data.status === "full") btn.innerText = "Reached Bookmark Limit";
                     });
                 }
             </script>

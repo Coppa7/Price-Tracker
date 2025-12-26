@@ -8,9 +8,9 @@ app.secret_key = "ciao_mamma"
 
 @app.route("/")
 def home():
-    bookmark_dic = session.get("bookmark_session")
+    bookmarks = session.get("bookmarks_list", [])
     
-    return render_template("main_page.html", bookmark_dic = bookmark_dic)    
+    return render_template("main_page.html", bookmarks = bookmarks)    
 
 @app.route("/query", methods=['POST'])
 def query():
@@ -32,13 +32,25 @@ def query():
     
 @app.route("/bookmark", methods=["POST"])
 def bookmark_func():
-    details = request.get_json()
+    MAX_BOOKMARKS = 2 #Limit of Bookmarks for a user 
     
-    session["bookmark_session"] = {
-        "img_src": details.get("img_src"),
-        "price": f"{details.get('price_whole')}{details.get('price_fraction')}",
-        "discount": details.get("discount")
+    prod_details = request.get_json() #Gets product details from product.html
+    
+    bookmarks_list = session.get("bookmarks_list", []) #Gets the bookmarks list from the session (or creates a new one)
+    
+    if len(bookmarks_list) >= MAX_BOOKMARKS:
+        return jsonify({"status": "full"})
+    
+    
+    bookmark = {
+        "img_src": prod_details.get("img_src"),
+        "price": f"{prod_details.get('price_whole')}{prod_details.get('price_fraction')}",
+        "discount": prod_details.get("discount")
     }
+    
+    bookmarks_list.append(bookmark)
+    session["bookmarks_list"] = bookmarks_list
+    session.modified = True
     
     return jsonify({"status": "ok"})
     
