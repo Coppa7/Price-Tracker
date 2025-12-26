@@ -29,7 +29,7 @@ def get_product_details(url):
         response.raise_for_status()        
     except requests.RequestException as e:
         print(f"Error: {e}")
-        return -1, "", "", "", ""
+        return "-1", "", "", "", ""
     
     # Possible to add a check for captchas 
     
@@ -66,12 +66,12 @@ def get_product_details(url):
             img_tag = soup.find("img", id = "landingImage")
             if img_tag:
                 img_url = img_tag['src']
-                return 0, price_whole, price_fraction, discount, img_url
+                return "0", price_whole, price_fraction, discount, img_url
             
         
-        return 1, price_whole, price_fraction, discount, "N/A"
+        return "1", price_whole, price_fraction, discount, "N/A"
     else:
-        return -2, "Error", "", "Error", "N/A"
+        return "-2", "Error", "", "Error", "N/A"
         
     
     

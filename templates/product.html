@@ -17,6 +17,33 @@
             <p class = "price_text"><h3>Price: {{ price_whole }}{{ price_fraction }}</h3></p>
             <p class = "discount_text"><h3>Discount: {{ discount }}</h3></p>
         </div>
+        <button class = "button bookmark_button" id = "bookmark_button" onclick = "bookmark_product()">Book</button>
+
+            <script>
+                function bookmark_product(){
+
+                    const details = {
+                        price_whole: "{{ price_whole }}",
+                        price_fraction: "{{ price_fraction }}",
+                        discount: "{{ discount }}",
+                        img_src: "{{ img_src }}"
+                    }
+
+                    fetch("/bookmark", {
+                        method: "POST",
+                        headers: { "Content-Type" : "application/json"},
+                        body: JSON.stringify(details)
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === "ok"){
+                            const btn = document.getElementById("bookmark_button");
+                            btn.innerText = "✅ Booked!";
+                        }
+                    });
+                }
+            </script>
+        </form>
     </div>
 </body>
 </html>

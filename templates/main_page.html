@@ -13,6 +13,16 @@
                 <button type = "submit">Search</button>
             </form>
         </div>
+        {% if bookmark_dic %}
+            <div class = "bookmark">
+                {% if bookmark_dic.img_src != "N/A" %}
+                    <img src = "{{ bookmark_dic.img_src }}" class = "bookmark_image" alt = "bookmark_product_image">
+                {% endif %}
+                <!-- Price should always exist if the page has loaded correctly -->
+                 <p class = "bookmark_price">{{bookmark_dic.price}}</p>
+                 <p class = "bookmark_discount">{{bookmark_dic.discount}}</p>
+            </div>
+        {% endif %}
     </main>
 </body>
 </html>

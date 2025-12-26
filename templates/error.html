@@ -10,9 +10,9 @@
             <div class = "error_description">
                 <div class = "error_id"><h3>Error code: {{ error_code }}</h3></div>
                 <div class = "error_desc">
-                    {% if error_code == -1 %}
+                    {% if error_code == "-1" %}
                         <h3>Connection timed out or invalid URL</h3>
-                    {% elif error_code == -2 %}
+                    {% elif error_code == "-2" %}
                         <h3>The page couldn't be accessed</h3>
                     {% endif %}
                 </div>
