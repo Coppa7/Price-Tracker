@@ -20,9 +20,13 @@
                         <img src = "{{ bookmark.img_src }}" class = "bookmark_image" alt = "bookmark_product_image">
                     {% endif %}
                     <!-- Price should always exist if the page has loaded correctly -->
+                    <p class = "bookmark_name">{{ bookmark.name }}</p>
                     <p class = "bookmark_price">{{bookmark.price}}</p>
                     <p class = "bookmark_discount">{{bookmark.discount}}</p>
-                    <button class = "button unbook_button" id = "unbook_button">Unbook</button><br><br>
+                    <p class = "bookmark_ASIN">{{bookmark.ASIN}}</p>
+                    <form id = "unbook_button" action = "/unbook" method = "POST">
+                        <button class = "button unbook_button" id = "unbook_button">Unbook</button><br><br>
+                    </form>
             {% endfor %}
             </div>
         {% endif %}

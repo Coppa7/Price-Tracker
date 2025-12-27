@@ -14,8 +14,10 @@
             <!-- Add else condition -->
         </div>
         <div class = "product_details">
+            <p class = "name_text"><h3>Name: {{ name }}</h3></p>
             <p class = "price_text"><h3>Price: {{ price_whole }}{{ price_fraction }}</h3></p>
             <p class = "discount_text"><h3>Discount: {{ discount }}</h3></p>
+            <p class = "ASIN_text"><h3>ASIN: {{ ASIN }}</h3></p>
         </div>
         <button class = "button bookmark_button" id = "bookmark_button" onclick = "bookmark_product()">Book</button>
 
@@ -23,6 +25,8 @@
                 function bookmark_product(){
 
                     const details = {
+                        ASIN: "{{ ASIN }}",
+                        name: "{{ name }}",
                         price_whole: "{{ price_whole }}",
                         price_fraction: "{{ price_fraction }}",
                         discount: "{{ discount }}",
@@ -39,6 +43,7 @@
                         const btn = document.getElementById("bookmark_button");
                         if (data.status === "ok")   btn.innerText = "Booked!";
                         else if (data.status === "full") btn.innerText = "Reached Bookmark Limit";
+                        else if (data.status === "duplicate") btn.innerText = "Bookmark Already Exists";
                     });
                 }
             </script>

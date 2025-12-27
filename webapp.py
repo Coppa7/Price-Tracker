@@ -15,7 +15,7 @@ def home():
 @app.route("/query", methods=['POST'])
 def query():
     query_url = request.form["url_query"]
-    err_id, query_price_whole, query_price_fraction, query_discount, query_img = get_product_details(query_url)
+    err_id, query_ASIN, query_name, query_price_whole, query_price_fraction, query_discount, query_img = get_product_details(query_url)
     if err_id != "0":
         return redirect(url_for("error_page",
                                 error_code = err_id))
@@ -25,6 +25,8 @@ def query():
         
     return render_template("product.html", 
                            error_code = "0",
+                           ASIN = query_ASIN,
+                           name = query_name,
                            price_whole = query_price_whole,
                            price_fraction = query_price_fraction,
                            discount = query_discount,
@@ -32,7 +34,7 @@ def query():
     
 @app.route("/bookmark", methods=["POST"])
 def bookmark_func():
-    MAX_BOOKMARKS = 2 #Limit of Bookmarks for a user 
+    MAX_BOOKMARKS = 4 #Limit of Bookmarks for a user 
     
     prod_details = request.get_json() #Gets product details from product.html
     
@@ -42,17 +44,27 @@ def bookmark_func():
         return jsonify({"status": "full"})
     
     
+    
     bookmark = {
         "img_src": prod_details.get("img_src"),
+        "ASIN": prod_details.get("ASIN"),
+        "name": prod_details.get("name"),
         "price": f"{prod_details.get('price_whole')}{prod_details.get('price_fraction')}",
         "discount": prod_details.get("discount")
     }
+    
+    if any(b.get("ASIN") == bookmark["ASIN"] for b in bookmarks_list):
+        return jsonify({"status": "duplicate"})
     
     bookmarks_list.append(bookmark)
     session["bookmarks_list"] = bookmarks_list
     session.modified = True
     
     return jsonify({"status": "ok"})
+
+@app.route("/unbook", methods = ["POST"])
+def unbook_func():
+    return redirect(url_for("home"))
     
     
     
