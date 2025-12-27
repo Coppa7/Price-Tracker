@@ -37,8 +37,6 @@ def get_product_details(url):
     html = response.text 
     soup = BeautifulSoup(html, "html.parser")
 
-    # Finding the price (unstable if the HTML page changes, but it seems to be pretty stable so I wont change it
-    # for now
     main_container = soup.find("div", id = "centerCol")
     img_container = soup.find("div", id = "leftCol")
     

@@ -64,8 +64,12 @@ def bookmark_func():
 
 @app.route("/unbook", methods = ["POST"])
 def unbook_func():
-    return redirect(url_for("home"))
+    bookmarks_list = session.get("bookmarks_list", [])
+    ASIN_to_delete = request.get_json()
+    session["bookmarks_list"] = [b for b in bookmarks_list if b.get("ASIN") != ASIN_to_delete]
+    session.modified = True
     
+    return "", 204    
     
     
 @app.route("/error")

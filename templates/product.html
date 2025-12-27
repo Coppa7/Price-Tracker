@@ -44,6 +44,10 @@
                         if (data.status === "ok")   btn.innerText = "Booked!";
                         else if (data.status === "full") btn.innerText = "Reached Bookmark Limit";
                         else if (data.status === "duplicate") btn.innerText = "Bookmark Already Exists";
+                    })
+                    .catch(error => {
+                        console.error("Error:", error);
+                        document.getElementById("bookmark_button").innerText = "Connection Error";
                     });
                 }
             </script>
