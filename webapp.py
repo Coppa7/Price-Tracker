@@ -1,13 +1,17 @@
 from flask import Flask, render_template, request, session, url_for, redirect, jsonify
-
+from datetime import timedelta
 from scraper.amazon_scraper import get_product_details
 
 app = Flask(__name__)
 app.secret_key = "ciao_mamma"
 # Change secret key in prod :)
 
+app.permanent_session_lifetime = timedelta(days=3650)
+#Cookies can get removed by the user, otherwise they're semi-permanent
+
 @app.route("/")
 def home():
+    session.permanent = True
     bookmarks = session.get("bookmarks_list", [])
     
     return render_template("main_page.html", bookmarks = bookmarks)    
@@ -34,6 +38,7 @@ def query():
     
 @app.route("/bookmark", methods=["POST"])
 def bookmark_func():
+    session.permanent = True #Permanent cookies
     MAX_BOOKMARKS = 4 #Limit of Bookmarks for a user 
     
     prod_details = request.get_json() #Gets product details from product.html
