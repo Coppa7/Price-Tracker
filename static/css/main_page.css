@@ -1,105 +1,93 @@
-body {
-    font-family: Arial, sans-serif;
-    background-color: #f4f4f4;
+/* Modern responsive styles for main page */
+:root{
+  --bg: #f6f7fb;
+  --card: #ffffff;
+  --muted: #6b7280;
+  --accent: #ff9900;
+  --accent-2: #febd69;
+  --radius: 10px;
 }
 
-main {
-    display:flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  background:var(--bg);
+  color:#111827;
 }
 
-.webpage_title h1 {
-    margin-bottom: 5px;
+.container{
+  max-width:1100px;
+  margin:12px auto;
+  padding:80px 28px 24px; /* top padding increased to avoid overlap with fixed title */
 }
 
-#url_bar_title {
-    margin-bottom: 4px;
-    margin-top: 35px;
+.webpage_title{
+  position:fixed;
+  top:20px;
+  left:20px;
+  z-index:60;
+  background:transparent;
+}
+.webpage_title h1{
+  margin:0;
+  font-weight:700;
+  font-size:20px;
+  color:#0f172a;
 }
 
-.url_query_bar_div {
-    width: 100%;
-}
+.url_query_bar_div{margin-top:18px}
 
 #url_query_bar{
-    width: 100%;
-    display: flex;
-    margin-left: -5px;
-    gap: 0px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
-    border-radius: 8px;
-    overflow: hidden; 
+  display:flex;
+  width:100%;
+  background:var(--card);
+  border-radius:var(--radius);
+  overflow:hidden;
+  box-shadow:0 6px 18px rgba(15,23,42,0.06);
 }
 
-#url_query {
-    width: 95%;   
-    padding: 12px 15px;
-    flex-grow: 1;
-    border: 1px solid #ccc;
-    border-right: none;
-    border-radius: 8px 0 0 8px;
-    transition: border-color 0.3s;
-    font-size: 16px;
+#url_query{
+  flex:1;
+  padding:12px 14px;
+  border:0;
+  font-size:15px;
 }
 
-#url_query:focus {
-    border-color: #ff9900; 
-    outline: none;
+#url_query:focus{outline:2px solid rgba(255,153,0,0.18)}
+
+#url_query_bar button{
+  background:linear-gradient(180deg,var(--accent-2),var(--accent));
+  border:0;padding:0 18px;display:flex;align-items:center;cursor:pointer;color:#111;
 }
 
-#url_query_bar button {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    padding: 10px 20px;
-    font-size: 20px;
-    background-color: #febd69; 
-    border: 1px solid #ccc;
-    border-radius: 0 8px 8px 0; 
-    cursor: pointer;
-    font-weight: bold;
-    transition: background-color 0.2s;
+.bookmarks_area{margin-top:22px;display:grid;grid-template-columns:1fr;gap:14px}
+
+
+.bookmark{display:flex;gap:20px;background:var(--card);padding:20px;border-radius:12px;align-items:center;box-shadow:0 4px 12px rgba(2,6,23,0.06);}
+
+.bookmark_image{width:160px;height:160px;flex:0 0 160px;object-fit:contain;border-radius:8px;background:linear-gradient(180deg,#fff,#fafafa);padding:8px}
+
+.bookmark_details{flex:1;display:flex;flex-direction:column;gap:8px;padding-right:12px}
+.bookmark_name{font-weight:600;margin:0}
+.bookmark_price{color:var(--accent);font-weight:700;margin:0}
+.bookmark_discount{color:var(--muted);margin:0}
+.bookmark_ASIN{color:var(--muted);font-size:13px;margin:0}
+
+.unbook_button{align-self:start;background:#ef4444;color:#fff;border:0;padding:8px 12px;border-radius:8px;cursor:pointer}
+.unbook_button:hover{opacity:0.95}
+
+.bookmark_chart_div{flex:0 0 380px}
+.bookmark_chart{width:100%;height:220px}
+
+@media (min-width:860px){
+  .bookmarks_area{grid-template-columns:1fr}
+  .bookmark{padding:20px}
+  .bookmark_image{width:200px;height:200px}
 }
 
-#url_query_bar button:hover {
-    background-color: #f3a847;
-}
-
-.bookmarks_area {
-    display: flex;
-    flex-direction: column; 
-    align-items: center;    
-    width: 100%;
-    margin-top: 30px;      
-    gap: 15px;             
-}
-
-.bookmark {
-    display: flex;        
-    justify-content: flex-start;
-    align-items: left;
-    width: 97.8%;          
-    margin-left: -5px; 
-    background-color: white;
-    padding: 15px;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    border: 1px solid #ddd;
-}
-
-.bookmark_image {
-    display: flex;
-    flex-direction: row;
-    width: 300px;          
-    height: 300px;
-    object-fit: contain;   
-    margin-right: 100px;
-}
-
-
-.bookmark_details {
-    display: flex;
-    flex-direction: column;
+@media (max-width:520px){
+  .bookmark{flex-direction:column;align-items:center;text-align:center}
+  .bookmark_image{width:120px;height:120px;margin-bottom:8px}
+  .bookmark_chart{height:180px}
 }

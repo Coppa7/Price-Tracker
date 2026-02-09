@@ -1,21 +1,17 @@
-from flask import Flask, render_template, request, jsonify
-
-from scraper.amazon_scraper import get_price_discount
+from flask import Flask, render_template, request, session, url_for, redirect, jsonify, g
+from datetime import timedelta
+from scraper.amazon_scraper import get_product_details
+import sqlite3
+import os
+from datetime import date, datetime as dt
+import uuid
 
 app = Flask(__name__)
+app.secret_key = "123 stella"
+# Change secret key in prod :)
 
-@app.route("/")
-def home():
-    return render_template("main_page.html")    
+app.permanent_session_lifetime = timedelta(days=3650)
+#Cookies can get removed by the user, otherwise they're semi-permanent
 
-@app.route("/query", methods=['POST'])
-def query():
-    query_url = request.form["url_query"]
-    query_price_whole, query_price_fraction, query_discount = get_price_discount(query_url)
-    return jsonify({"price_whole": query_price_whole,
-                    "price_fraction": query_price_fraction,
-                    "discount": query_discount})
-
-
-if __name__ == '__main__':
-    app.run(debug=True)
+#We create a global database (all the bookmarked products shared between the users)
+folder = 'database_dir'

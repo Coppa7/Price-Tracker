@@ -4,13 +4,15 @@
     <meta charset = "UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main_page.css') }}">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
     <title>Amazon Price Tracker</title>
 </head>
 <body>
-    <div class = "webpage_title"><h1>Amazon Price Tracker</h1></div>
-    <main>
+    <div class="container">
+      <div class = "webpage_title"><h1>Amazon Price Tracker</h1></div>
+      <main>
         <div class = "url_query_bar_div">
             <p id = "url_bar_title">URL Bar:</p>
             <form action = "/query" method = "POST" id = "url_query_bar">
@@ -18,9 +20,10 @@
                 <button type = "submit"><span class="material-icons">arrow_forward</span></button>
             </form>
         </div>
-    </main>
-    <div class = "bookmark_area">
-        <br><br><h2>Your bookmarks:</h2>
+      </main>
+      <br>
+      <h2>Your bookmarks:</h2>
+      <div class = "bookmarks_area">
         {% if bookmarks %}
             {%for bookmark in bookmarks %}
                 <div class = "bookmark">
@@ -30,15 +33,20 @@
                     <!-- Price should always exist if the page has loaded correctly -->
                     <div class = "bookmark_details">
                         <p class = "bookmark_name">Product: {{bookmark.name}}</p>
-                        <p class = "bookmark_price">Price: {{bookmark.price}}</p>
-                        <p class = "bookmark_discount">Discount: {{bookmark.discount}}</p>
+                        <p class = "bookmark_price">Price: € {{bookmark.price}}</p>
+                        <p class = "bookmark_discount">Discount: € {{bookmark.discount}}</p>
                         <p class = "bookmark_ASIN">ASIN: {{bookmark.ASIN}}</p>
-                        <button class = "button unbook_button" onclick = "unbook_function('{{bookmark.ASIN}}')">Unbook</button><br><br>
+                        <button class = "button unbook_button" onclick = "unbook_function('{{bookmark.ASIN}}')">Unbook</button>
                     </div>
+                    <div class = "bookmark_chart_div">
+                        <canvas class = "bookmark_chart" data-asin = "{{ bookmark.ASIN }}" ></canvas>
+                    </div>
+                </div>
             {% endfor %}
-            </div>
         {% endif %}
+      </div>
     </div>
+    <script src="{{ url_for('static', filename='js/bookmark_chart.js') }}" defer></script>
     <script>
         function unbook_function(ASIN_json)
         {
@@ -55,7 +63,7 @@
                     fetch("/unbook", {
                         method: "POST",
                         headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify(ASIN_json)
+                        body: JSON.stringify({ ASIN: ASIN_json })
                     })
                     .then(result => {
                         if(result.ok){
