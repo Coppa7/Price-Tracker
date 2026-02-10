@@ -39,44 +39,6 @@ def close_db(exception):
 connection = sqlite3.connect(path)
 cursor = connection.cursor()
 
-# Drop legacy tables and start fresh (clears existing data)
-cursor.execute('DROP TABLE IF EXISTS bookmarks')
-cursor.execute('DROP TABLE IF EXISTS graph_data')
-cursor.execute('DROP TABLE IF EXISTS products')
-cursor.execute('DROP TABLE IF EXISTS user_bookmarks')
-
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS products (
-    asin TEXT PRIMARY KEY,
-    name TEXT,
-    price FLOAT,
-    discount TEXT,
-    img_src TEXT
-)
-''')
-
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS user_bookmarks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT,
-    asin TEXT,
-    created_at DATETIME,
-    FOREIGN KEY (asin) REFERENCES products (asin)
-)
-''')
-
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS graph_data (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    asin TEXT,
-    price FLOAT,
-    date DATETIME,
-    FOREIGN KEY (asin) REFERENCES products (asin)
-)
-''')
-
-connection.commit()
-connection.close()
 
 @app.route("/")
 def home():
