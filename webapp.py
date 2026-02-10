@@ -35,9 +35,6 @@ def close_db(exception):
     db = g.pop('db', None)
     if db is not None:
         db.close()
-# Reset DB schema: remove old session-based tables and create new schema
-connection = sqlite3.connect(path)
-cursor = connection.cursor()
 
 
 @app.route("/")
