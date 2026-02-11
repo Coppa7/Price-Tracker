@@ -3,6 +3,12 @@ from bs4 import BeautifulSoup
 
 def get_product_details(url):
     
+    url = url.strip()
+    
+    # Fix for urls that were copied wrong
+    if not url.startswith(("http://", ("https://"))):
+        url = url + "https://"
+    
     '''
     Uses scraping to find the price and discount (if there is one) of an item on amazon.it.
     This scraping is done only for learning purposes. A request is only sent once the program
