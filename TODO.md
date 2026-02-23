@@ -1,4 +1,4 @@
-Some amazon links don't work 
+Some amazon links don't work (FIXED?)
 Update css on product page
 Remove euro symbol from discount text
 Better css in general
