@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, session, url_for, redirect, jsonify, g
 from datetime import timedelta
 from scraper.amazon_scraper import get_product_details
+from flask_caching import Cache
 import sqlite3
 import os
 from datetime import date, datetime as dt
@@ -9,6 +10,19 @@ import uuid
 app = Flask(__name__)
 app.secret_key = "123 stella"
 # Change secret key in prod :)
+
+
+cache_folder = "cache_dir"
+cache_path = os.path.join(cache_folder)
+if not os.path.exists(cache_path):
+    os.makedirs(cache_path)
+
+
+cache = Cache(app, config={
+    "CACHE_TYPE": "FileSystemCache",
+    "CACHE_DIR": cache_path,
+    "CACHE_DEFAULT_TIMEOUT": 900,
+})
 
 app.permanent_session_lifetime = timedelta(days=3650)
 #Cookies can get removed by the user, otherwise they're semi-permanent
@@ -71,8 +85,16 @@ def home():
 
 @app.route("/query", methods=['POST'])
 def query():
-    query_url = request.form["url_query"]
-    err_id, query_ASIN, query_name, query_price_whole, query_price_fraction, query_discount, query_img = get_product_details(query_url)
+    query_url = request.form["url_query"].strip()
+
+    cache_key = f"scrape:{query_url}"
+    cached_result = cache.get(cache_key)
+    if cached_result is None:
+        cached_result = get_product_details(query_url)
+        if cached_result[0] == "0":
+            cache.set(cache_key, cached_result)
+
+    err_id, query_ASIN, query_name, query_price_whole, query_price_fraction, query_discount, query_img = cached_result
     if err_id != "0":
         return redirect(url_for("error_page",
                                 error_code = err_id))
