@@ -43,16 +43,15 @@ def get_product_details(url):
     html = response.text 
     soup = BeautifulSoup(html, "html.parser")
 
-    main_container = soup.find("div", id = "centerCol")
-    if not main_container:
-        main_container = soup.find("div", id = "rightCol")
-        if not main_container:
-            html_lower = html.lower()
-            if "captcha" in html_lower or "robot check" in html_lower:
-                print(f"Scraper diagnostic: captcha/robot check detected. final_url={response.url} status={response.status_code}")
-                return "-3", "Error", "Error", "Error", "", "Error", "N/A"
-            print(f"Scraper diagnostic: main container not found. final_url={response.url} status={response.status_code}")
-            return "-2", "Error", "Error", "Error", "", "Error", "N/A"
+    price_container = soup.find("div", id = "rightCol")
+    title_container = soup.find("div", id = "centerCol")
+    if not price_container or not title_container:
+        html_lower = html.lower()
+        if "captcha" in html_lower or "robot check" in html_lower:
+            print(f"Scraper diagnostic: captcha/robot check detected. final_url={response.url} status={response.status_code}")
+            return "-3", "Error", "Error", "Error", "", "Error", "N/A"
+        print(f"Scraper diagnostic: main container not found. final_url={response.url} status={response.status_code}")
+        return "-2", "Error", "Error", "Error", "", "Error", "N/A"
             
     img_container = soup.find("div", id = "leftCol")
     
@@ -62,11 +61,11 @@ def get_product_details(url):
     
     ASIN = ((url.split("/dp/"))[1].split("/"))[0]
     
-    price_whole = main_container.find("span", class_="a-price-whole")
-    price_fraction = main_container.find("span", class_="a-price-fraction")
-    name = main_container.find("span", id = "productTitle")
+    price_whole = price_container.find("span", class_="a-price-whole")
+    price_fraction = price_container.find("span", class_="a-price-fraction")
+    name = title_container.find("span", id = "productTitle")
 
-    discount = main_container.find("span", class_="savingsPercentage")
+    discount = price_container.find("span", class_="savingsPercentage")
     
     
     if ASIN and price_whole and price_fraction and name:

@@ -98,18 +98,54 @@ def query():
     if err_id != "0":
         return redirect(url_for("error_page",
                                 error_code = err_id))
-        
-    # Add code for err_id = 1 (Missing image), which is not an actual error
-        
-        
-    return render_template("product.html", 
-                           error_code = "0",
-                           ASIN = query_ASIN,
-                           name = query_name,
-                           price_whole = query_price_whole,
-                           price_fraction = query_price_fraction,
-                           discount = query_discount,
-                           img_src = query_img)
+
+    # Save/update product so product page can be served via GET (PRG pattern)
+    db = get_db()
+    cursor = db.cursor()
+    price_text = f"{query_price_whole}{query_price_fraction}"
+    try:
+        price = float(price_text.replace(",", "."))
+    except (TypeError, ValueError):
+        price = None
+    cursor.execute(
+        '''INSERT OR REPLACE INTO products (asin, name, price, discount, img_src)
+           VALUES (?, ?, ?, ?, ?)''',
+        (query_ASIN, query_name, price, query_discount, query_img)
+    )
+    db.commit()
+
+    # POST/Redirect/GET avoids browser "resubmit form" prompt on back/refresh
+    return redirect(url_for("product_page", asin=query_ASIN))
+
+
+@app.route("/product/<asin>")
+def product_page(asin):
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute('SELECT asin, name, price, discount, img_src FROM products WHERE asin = ?', (asin,))
+    row = cursor.fetchone()
+
+    if not row:
+        return redirect(url_for("error_page", error_code="-3"))
+
+    if row["price"] is None:
+        whole, fraction = "Price not found", ""
+    else:
+        price_value = float(row["price"])
+        price_str = f"{price_value:.2f}".replace(".", ",")
+        whole, fraction = price_str.split(",")
+        whole = f"{whole},"
+
+    return render_template(
+        "product.html",
+        error_code="0",
+        ASIN=row["asin"],
+        name=row["name"],
+        price_whole=whole,
+        price_fraction=fraction,
+        discount=row["discount"],
+        img_src=row["img_src"]
+    )
     
 @app.route("/bookmark", methods=["POST"])
 def bookmark_func():
@@ -125,7 +161,10 @@ def bookmark_func():
 
     prod_details = request.get_json() #Gets product details from product.html
     price_text = f"{prod_details.get('price_whole')}{prod_details.get('price_fraction')}"
-    price = float(price_text.replace(",", "."))
+    try:
+        price = float(price_text.replace(",", "."))
+    except (TypeError, ValueError):
+        return jsonify({"status": "price_not_found"})
     # Check if this asin is already bookmarked by this session
     cursor.execute('SELECT COUNT(*) AS cnt FROM user_bookmarks WHERE session_id = ? AND asin = ?',
                    (session['session_id'], prod_details.get('ASIN')))

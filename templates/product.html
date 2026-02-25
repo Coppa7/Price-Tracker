@@ -16,8 +16,12 @@
             <!-- Add else condition -->
         </div>
         <div class = "product_details">
-            <p class = "bookmark_name">Product: {{ name }}</p>
-            <p class = "bookmark_price">Price: € {{ price_whole }}{{ price_fraction }}</p>
+            <p class = "bookmark_name">Product: <a class="product_link" href="https://www.amazon.it/dp/{{ ASIN }}" target="_blank" rel="noopener noreferrer">{{ name }}</a></p>
+            {% if price_whole == "Price not found" %}
+                <p class = "bookmark_price">Price: {{ price_whole }}</p>
+            {% else %}
+                <p class = "bookmark_price">Price: € {{ price_whole }}{{ price_fraction }}</p>
+            {% endif %}
             <p class = "bookmark_discount">Discount: {{ discount }}</p>
             <p class = "bookmark_ASIN">ASIN: {{ ASIN }}</p>
             <button class = "button bookmark_button" id = "bookmark_button" onclick = "bookmark_product()">Book</button>
@@ -49,6 +53,7 @@
                         if (data.status === "ok")   btn.innerText = "Booked!";
                         else if (data.status === "full") btn.innerText = "Reached Bookmark Limit";
                         else if (data.status === "duplicate") btn.innerText = "Bookmark Already Exists";
+                        else if (data.status === "price_not_found") btn.innerText = "Price Not Found";
                     })
                     .catch(error => {
                         console.error("Error:", error);

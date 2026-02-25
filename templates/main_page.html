@@ -10,8 +10,8 @@
     <title>Amazon Price Tracker</title>
 </head>
 <body>
+    <div class = "webpage_title"><h1>Amazon Price Tracker</h1></div>
     <div class="container">
-      <div class = "webpage_title"><h1>Amazon Price Tracker</h1></div>
       <main>
         <div class = "url_query_bar_div">
             <p id = "url_bar_title">URL Bar:</p>
@@ -32,7 +32,7 @@
                     {% endif %}
                     <!-- Price should always exist if the page has loaded correctly -->
                     <div class = "bookmark_details">
-                        <p class = "bookmark_name">Product: {{bookmark.name}}</p>
+                        <p class = "bookmark_name">Product: <a class="product_link" href="https://www.amazon.it/dp/{{ bookmark.ASIN }}" target="_blank" rel="noopener noreferrer">{{bookmark.name}}</a></p>
                         <p class = "bookmark_price">Price: € {{bookmark.price}}</p>
                         <p class = "bookmark_discount">Discount: {{bookmark.discount}}</p>
                         <p class = "bookmark_ASIN">ASIN: {{bookmark.ASIN}}</p>
