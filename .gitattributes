@@ -1,0 +1,7 @@
+# Generated frontend build output
+static/css/output.css linguist-generated=true
+package-lock.json linguist-generated=true
+
+# Runtime/cache data that should not affect language stats
+cache_dir/** linguist-generated=true
+database_dir/** linguist-generated=true

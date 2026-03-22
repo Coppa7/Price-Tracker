@@ -1,7 +1,47 @@
+# Python virtual environments
 venv/
+.venv/
+env/
+ENV/
+
+# Python cache and artifacts
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+
+# App runtime data
+cache_dir/
 database_dir/
-.DS_Store
+
+# Node / Tailwind
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+
+# Editors / IDE
+.vscode/
+.idea/
+tempCodeRunnerFile.py
+git
+
+# OS files
+.DS_Store
+Thumbs.db
 
