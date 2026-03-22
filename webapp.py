@@ -8,8 +8,12 @@ from datetime import date, datetime as dt
 import uuid
 
 app = Flask(__name__)
-app.secret_key = "123 stella"
-# Change secret key in prod :)
+DEV_FALLBACK_SECRET = "dev-insecure-change-me"
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", DEV_FALLBACK_SECRET)
+
+# Fail fast if the app is explicitly marked as production but secret is missing.
+if os.environ.get("APP_ENV", "").lower() == "production" and app.secret_key == DEV_FALLBACK_SECRET:
+    raise RuntimeError("FLASK_SECRET_KEY is required in production")
 
 
 cache_folder = "cache_dir"
