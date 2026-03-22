@@ -1,0 +1,13 @@
+{
+  "name": "price-graph",
+  "version": "1.0.0",
+  "description": "Amazon Price Tracker with Tailwind CSS",
+  "scripts": {
+    "build": "tailwindcss -i ./static/css/input.css -o ./static/css/output.css",
+    "dev": "tailwindcss -i ./static/css/input.css -o ./static/css/output.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.3.0",
+    "postcss": "^8.4.24"
+  }
+}

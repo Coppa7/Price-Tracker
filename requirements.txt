@@ -7,6 +7,7 @@ click==8.3.1
 colorama==0.4.6
 Flask==3.1.2
 Flask-Caching==2.3.1
+fake-useragent==2.2.0
 gevent==25.9.1
 greenlet==3.3.1
 gunicorn==25.0.3

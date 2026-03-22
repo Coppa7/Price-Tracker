@@ -1,4 +1,4 @@
-from scraper.amazon_scraper import get_product_details
+from scraper.amazon_scraper import create_session, get_product_details
 import sqlite3
 import os
 import time
@@ -28,50 +28,58 @@ def update_all(delay_seconds: float = 1.0):
         conn.close()
         return
 
-    for r in rows:
-        asin = r['asin']
-        if not asin:
-            continue
+    session = create_session()
+    try:
+        for r in rows:
+            asin = r['asin']
+            if not asin:
+                continue
 
-        url = f'https://www.amazon.it/dp/{asin}'
-        print(f'Updating {asin}...')
-        try:
-            err_id, got_asin, name, price_whole, price_fraction, discount, img = get_product_details(url)
-        except Exception as e:
-            print(f'  Scrape error for {asin}: {e}')
+            url = f'https://www.amazon.it/dp/{asin}'
+            print(f'Updating {asin}...')
+            try:
+                err_id, got_asin, name, price_whole, price_fraction, discount, img = get_product_details(
+                    url,
+                    delay=0,
+                    session=session,
+                )
+            except Exception as e:
+                print(f'  Scrape error for {asin}: {e}')
+                time.sleep(delay_seconds)
+                continue
+
+            if err_id != "0":
+                print(f'  Skipped {asin}, scraper returned err_id={err_id}')
+                time.sleep(delay_seconds)
+                continue
+
+            price_text = f"{price_whole}{price_fraction}"
+            try:
+                price = float(price_text.replace(',', '.'))
+            except Exception:
+                price = None
+
+            # Update product info
+            cur.execute(
+                '''INSERT OR REPLACE INTO products (asin, name, price, discount, img_src)
+                   VALUES (?, ?, ?, ?, ?)''',
+                (got_asin, name, price, discount, img)
+            )
+
+            # Insert graph point for today if not exists
+            today = date.today().isoformat()
+            cur.execute('SELECT COUNT(*) AS cnt FROM graph_data WHERE asin = ? AND date = ?', (got_asin, today))
+            exists = cur.fetchone()[0]
+            if not exists:
+                cur.execute('INSERT INTO graph_data (asin, price, date) VALUES (?, ?, ?)', (got_asin, price, today))
+                print(f'  Added graph point for {asin} -> {price} on {today}')
+            else:
+                print(f'  Graph point already exists for {asin} on {today}')
+
+            conn.commit()
             time.sleep(delay_seconds)
-            continue
-
-        if err_id != "0":
-            print(f'  Skipped {asin}, scraper returned err_id={err_id}')
-            time.sleep(delay_seconds)
-            continue
-
-        price_text = f"{price_whole}{price_fraction}"
-        try:
-            price = float(price_text.replace(',', '.'))
-        except Exception:
-            price = None
-
-        # Update product info
-        cur.execute(
-            '''INSERT OR REPLACE INTO products (asin, name, price, discount, img_src)
-               VALUES (?, ?, ?, ?, ?)''',
-            (got_asin, name, price, discount, img)
-        )
-
-        # Insert graph point for today if not exists
-        today = date.today().isoformat()
-        cur.execute('SELECT COUNT(*) AS cnt FROM graph_data WHERE asin = ? AND date = ?', (got_asin, today))
-        exists = cur.fetchone()[0]
-        if not exists:
-            cur.execute('INSERT INTO graph_data (asin, price, date) VALUES (?, ?, ?)', (got_asin, price, today))
-            print(f'  Added graph point for {asin} -> {price} on {today}')
-        else:
-            print(f'  Graph point already exists for {asin} on {today}')
-
-        conn.commit()
-        time.sleep(delay_seconds)
+    finally:
+        session.close()
 
     conn.close()
 

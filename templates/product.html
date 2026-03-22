@@ -3,64 +3,130 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/product.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/output.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <title>Amazon Price Tracker</title>
 </head>
-<body>
-    <div class="webpage_title"><h1>Amazon Price Tracker</h1></div>
-    <div class = "product_container">
-        <div class = "product_image">
-            {% if img_src != "N/A" %}
-                <img src="{{ img_src }}" alt = "product">
-            {% endif %}
-            <!-- Add else condition -->
-        </div>
-        <div class = "product_details">
-            <p class = "bookmark_name">Product: <a class="product_link" href="https://www.amazon.it/dp/{{ ASIN }}" target="_blank" rel="noopener noreferrer">{{ name }}</a></p>
-            {% if price_whole == "Price not found" %}
-                <p class = "bookmark_price">Price: {{ price_whole }}</p>
-            {% else %}
-                <p class = "bookmark_price">Price: € {{ price_whole }}{{ price_fraction }}</p>
-            {% endif %}
-            <p class = "bookmark_discount">Discount: {{ discount }}</p>
-            <p class = "bookmark_ASIN">ASIN: {{ ASIN }}</p>
-            <button class = "button bookmark_button" id = "bookmark_button" onclick = "bookmark_product()">Book</button>
-        </div>
-
-            <script>
-                function bookmark_product(){
-
-                    const details = {
-                        ASIN: "{{ ASIN }}",
-                        name: "{{ name }}",
-                        price_whole: "{{ price_whole }}",
-                        price_fraction: "{{ price_fraction }}",
-                        discount: "{{ discount }}",
-                        img_src: "{{ img_src }}"
-                    }
-
-                    fetch("/bookmark", {
-                        method: "POST",
-                        headers: { "Content-Type" : "application/json"},
-                        body: JSON.stringify(details)
-                    })
-                    .then(response => {
-                        if (!response.ok) throw new Error("Network response was not ok");
-                        return response.json();
-                    })
-                    .then(data => {
-                        const btn = document.getElementById("bookmark_button");
-                        if (data.status === "ok")   btn.innerText = "Booked!";
-                        else if (data.status === "full") btn.innerText = "Reached Bookmark Limit";
-                        else if (data.status === "duplicate") btn.innerText = "Bookmark Already Exists";
-                        else if (data.status === "price_not_found") btn.innerText = "Price Not Found";
-                    })
-                    .catch(error => {
-                        console.error("Error:", error);
-                        document.getElementById("bookmark_button").innerText = "Connection Error";
-                    });
-                }
-            </script>
+<body class="bg-gray-50 text-gray-900">
+    <div class="px-5 pt-5 sm:px-6 md:px-8">
+        <h1 class="text-2xl font-bold text-slate-900">
+            <a href="/" class="hover:underline">Amazon Price Tracker</a>
+        </h1>
     </div>
+
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 py-8">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 items-stretch">
+            <!-- Product Image -->
+            <div class="flex justify-center items-center bg-white rounded-xl shadow-md p-8">
+                {% if img_src != "N/A" %}
+                    <img src="{{ img_src }}" alt="product" class="max-w-full max-h-96 object-contain">
+                {% else %}
+                    <div class="text-gray-400 text-center">No image available</div>
+                {% endif %}
+            </div>
+
+            <!-- Product Details -->
+            <div class="bg-white rounded-xl shadow-md p-8 space-y-4 flex flex-col justify-center">
+<h2 class="text-xl font-bold mb-4">
+                Product: <a class="text-blue-600 hover:underline" href="https://www.amazon.it/dp/{{ ASIN }}" target="_blank" rel="noopener noreferrer">{{ name | truncate(200) }}</a>
+                </h2>
+
+                {% if price_whole == "Price not found" %}
+                    <p class="text-lg font-semibold text-amber-600">Price: {{ price_whole }}</p>
+                {% else %}
+                    <p class="text-2xl font-bold text-amber-600">Price: € {{ price_whole }}{{ price_fraction }}</p>
+                {% endif %}
+
+                <div class="space-y-2 text-gray-600">
+                    <p class="text-sm"><span class="font-semibold">Discount:</span> {{ discount }}</p>
+                    <p class="text-xs text-gray-500"><span class="font-semibold">ASIN:</span> {{ ASIN }}</p>
+                </div>
+
+                <button 
+                    id="bookmark_button" 
+                    onclick="bookmark_product()"
+                    class="w-full mt-6 px-6 py-3 bg-red-500 text-white font-bold rounded-lg hover:bg-red-600 transition"
+                >
+                    Book
+                </button>
+            </div>
+        </div>
+
+        <!-- Price History Chart -->
+        <div class="bg-white rounded-xl shadow-md p-8 mt-8">
+            <h3 class="text-xl font-semibold mb-6">Price History</h3>
+            <div class="h-96">
+                <canvas id="product_chart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function bookmark_product() {
+            const details = {
+                ASIN: "{{ ASIN }}",
+                name: "{{ name }}",
+                price_whole: "{{ price_whole }}",
+                price_fraction: "{{ price_fraction }}",
+                discount: "{{ discount }}",
+                img_src: "{{ img_src }}"
+            }
+
+            fetch("/bookmark", {
+                method: "POST",
+                headers: { "Content-Type": "application/json"},
+                body: JSON.stringify(details)
+            })
+            .then(response => {
+                if (!response.ok) throw new Error("Network response was not ok");
+                return response.json();
+            })
+            .then(data => {
+                const btn = document.getElementById("bookmark_button");
+                if (data.status === "ok") btn.innerText = "Booked!";
+                else if (data.status === "full") btn.innerText = "Reached Bookmark Limit";
+                else if (data.status === "duplicate") btn.innerText = "Bookmark Already Exists";
+                else if (data.status === "price_not_found") btn.innerText = "Price Not Found";
+            })
+            .catch(error => {
+                console.error("Error:", error);
+                document.getElementById("bookmark_button").innerText = "Connection Error";
+            });
+        }
+
+        // Load and display price history chart
+        document.addEventListener("DOMContentLoaded", function() {
+            const canvas = document.getElementById("product_chart");
+            const asin = "{{ ASIN }}";
+            const ctx = canvas.getContext("2d");
+
+            fetch(`/bookmark_info/${asin}`)
+            .then(response => response.json())
+            .then(data => {
+                new Chart(ctx, {
+                    type: "line",
+                    data: {
+                        labels: data.dates,
+                        datasets: [{
+                            label: 'Prezzo (€)',
+                            data: data.prices,
+                            borderColor: '#ff9900',
+                            backgroundColor: 'rgba(255, 153, 0, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: false }
+                        }
+                    }
+                });
+            })
+            .catch(error => console.error("Error loading chart:", error));
+        });
+    </script>
 </body>
 </html>
