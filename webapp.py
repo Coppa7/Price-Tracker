@@ -14,32 +14,6 @@ app.wsgi_app = ProxyFix(app.wsgi_app)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY")
 
 
-class PrefixMiddleware:
-    def __init__(self, app, prefix=""):
-        self.app = app
-        self.prefix = prefix.rstrip("/")
-
-    def __call__(self, environ, start_response):
-        if not self.prefix:
-            return self.app(environ, start_response)
-
-        path = environ.get("PATH_INFO", "") or ""
-        if path == self.prefix:
-            environ["SCRIPT_NAME"] = self.prefix
-            environ["PATH_INFO"] = "/"
-            return self.app(environ, start_response)
-
-        if path.startswith(self.prefix + "/"):
-            environ["SCRIPT_NAME"] = self.prefix
-            environ["PATH_INFO"] = path[len(self.prefix):] or "/"
-            return self.app(environ, start_response)
-
-        start_response("404 Not Found", [("Content-Type", "text/plain")])
-        return [b"Not Found"]
-
-
-app.wsgi_app = PrefixMiddleware(app.wsgi_app, prefix="/PriceTracker")
-
 # Fail fast if the secret key is missing.
 if not app.secret_key:
     raise RuntimeError("FLASK_SECRET_KEY is required")
