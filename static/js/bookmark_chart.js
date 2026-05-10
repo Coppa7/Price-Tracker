@@ -3,9 +3,14 @@ document.addEventListener("DOMContentLoaded", function() {
 
     charts.forEach(canvas => {
         const asin = canvas.getAttribute("data-asin");
+        const endpoint = canvas.getAttribute("data-endpoint");
         const ctx = canvas.getContext("2d");
 
-        fetch(`/bookmark_info/${asin}`) 
+        if (!endpoint) {
+            return;
+        }
+
+        fetch(endpoint)
         .then(response => response.json())
         .then(data => {
             new Chart(ctx, {

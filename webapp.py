@@ -6,14 +6,43 @@ import sqlite3
 import os
 from datetime import date, datetime as dt
 import uuid
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-app = Flask(__name__)
-DEV_FALLBACK_SECRET = "dev-insecure-change-me"
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", DEV_FALLBACK_SECRET)
+app = Flask(__name__)   
+app.config['APPLICATION_ROOT'] = '/PriceTracker'
+app.wsgi_app = ProxyFix(app.wsgi_app, script_name='/PriceTracker')
+app.secret_key = os.environ.get("FLASK_SECRET_KEY")
 
-# Fail fast if the app is explicitly marked as production but secret is missing.
-if os.environ.get("APP_ENV", "").lower() == "production" and app.secret_key == DEV_FALLBACK_SECRET:
-    raise RuntimeError("FLASK_SECRET_KEY is required in production")
+
+class PrefixMiddleware:
+    def __init__(self, app, prefix=""):
+        self.app = app
+        self.prefix = prefix.rstrip("/")
+
+    def __call__(self, environ, start_response):
+        if not self.prefix:
+            return self.app(environ, start_response)
+
+        path = environ.get("PATH_INFO", "") or ""
+        if path == self.prefix:
+            environ["SCRIPT_NAME"] = self.prefix
+            environ["PATH_INFO"] = "/"
+            return self.app(environ, start_response)
+
+        if path.startswith(self.prefix + "/"):
+            environ["SCRIPT_NAME"] = self.prefix
+            environ["PATH_INFO"] = path[len(self.prefix):] or "/"
+            return self.app(environ, start_response)
+
+        start_response("404 Not Found", [("Content-Type", "text/plain")])
+        return [b"Not Found"]
+
+
+app.wsgi_app = PrefixMiddleware(app.wsgi_app, prefix="/PriceTracker")
+
+# Fail fast if the secret key is missing.
+if not app.secret_key:
+    raise RuntimeError("FLASK_SECRET_KEY is required")
 
 
 cache_folder = "cache_dir"

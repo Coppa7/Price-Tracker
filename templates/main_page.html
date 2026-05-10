@@ -12,7 +12,7 @@
 <body class="bg-gray-50 text-gray-900">
     <div class="px-5 pt-5 pb-8 sm:px-6 md:px-8">
         <h1 class="text-2xl font-bold text-slate-900">
-            <a href="/" class="hover:underline">Amazon Price Tracker</a>
+            <a href="{{ url_for('home') }}" class="hover:underline">Amazon Price Tracker</a>
         </h1>
     </div>
 
@@ -20,7 +20,7 @@
         <main>
             <div class="mb-8">
                 <label class="block text-base font-medium text-gray-700 mb-2">URL Bar:</label>
-                <form action="/query" method="POST" class="w-full flex rounded-lg overflow-hidden shadow-md bg-white">
+                <form action="{{ url_for('query') }}" method="POST" class="w-full flex rounded-lg overflow-hidden shadow-md bg-white">
                     <input 
                         type="text" 
                         id="url_query" 
@@ -69,7 +69,7 @@
 
                         <!-- Chart -->
                         <div class="w-full sm:w-80 flex-shrink-0">
-                            <canvas class="bookmark_chart w-full h-56" data-asin="{{ bookmark.ASIN }}"></canvas>
+                            <canvas class="bookmark_chart w-full h-56" data-asin="{{ bookmark.ASIN }}" data-endpoint="{{ url_for('give_bookmark_info', asin=bookmark.ASIN) }}"></canvas>
                         </div>
                     </div>
                 {% endfor %}
@@ -94,7 +94,7 @@
             })
             .then(response => {
                 if(response.isConfirmed) {
-                    fetch("/unbook", {
+                    fetch("{{ url_for('unbook_func') }}", {
                         method: "POST",
                         headers: {"Content-Type": "application/json"},
                         body: JSON.stringify({ ASIN: ASIN_json })
