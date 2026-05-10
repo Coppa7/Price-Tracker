@@ -10,7 +10,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)   
 app.config['APPLICATION_ROOT'] = '/PriceTracker'
-app.wsgi_app = ProxyFix(app.wsgi_app, script_name='/PriceTracker')
+app.wsgi_app = ProxyFix(app.wsgi_app)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY")
 
 
