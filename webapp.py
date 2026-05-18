@@ -9,8 +9,13 @@ import uuid
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)   
-app.config['APPLICATION_ROOT'] = '/PriceTracker'
-app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+
+# REMOVE IN PRODUCTION 
+
+#app.config['APPLICATION_ROOT'] = '/PriceTracker'
+app.config['APPLICATION_ROOT'] = '/'
+#app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+app.secret_key = "local"
 
 
 class PrefixMiddleware:
@@ -23,6 +28,17 @@ class PrefixMiddleware:
             return self.app(environ, start_response)
 
         path = environ.get("PATH_INFO", "") or ""
+        
+        # Allow static files to pass through without prefix
+        if path.startswith("/static/"):
+            return self.app(environ, start_response)
+        
+        # Allow access to root "/" without prefix
+        if path == "/":
+            environ["SCRIPT_NAME"] = ""
+            environ["PATH_INFO"] = "/"
+            return self.app(environ, start_response)
+        
         if path == self.prefix:
             environ["SCRIPT_NAME"] = self.prefix
             environ["PATH_INFO"] = "/"
@@ -37,7 +53,9 @@ class PrefixMiddleware:
         return [b"Not Found"]
 
 
-app.wsgi_app = PrefixMiddleware(ProxyFix(app.wsgi_app), prefix="/PriceTracker")
+#app.wsgi_app = PrefixMiddleware(ProxyFix(app.wsgi_app), prefix="/PriceTracker")
+app.wsgi_app = PrefixMiddleware(ProxyFix(app.wsgi_app), prefix="")  # Empty prefix for local dev, set to "/PriceTracker" in production
+
 
 
 # Fail fast if the secret key is missing.

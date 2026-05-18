@@ -8,14 +8,25 @@ from typing import Optional, Tuple
 import importlib
 from urllib3.util.retry import Retry
 
+# Playwright import (optional, for fallback)
+try:
+    from playwright.sync_api import sync_playwright
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+if not PLAYWRIGHT_AVAILABLE:
+    logger.warning("Playwright not installed. Browser fallback disabled. Install with: pip install playwright && playwright install")
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2  
 BASE_DELAY = 1.5  
 JITTER_RATIO = 0.2
+USE_PLAYWRIGHT_FALLBACK = True  # Abilita fallback a Playwright se requests fallisce
 
 FALLBACK_USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -49,11 +60,132 @@ def create_session() -> requests.Session:
     return session
 
 
+def get_product_details_playwright(url: str, delay: float = BASE_DELAY) -> Tuple:
+    """
+    Fallback scraper using Playwright browser automation.
+    """
+    if not PLAYWRIGHT_AVAILABLE:
+        logger.error("Playwright not available. Install with: pip install playwright && playwright install")
+        return "-1", "", "", "", "", "", ""
+    
+    url = url.strip()
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    try:
+        for attempt in range(MAX_RETRIES):
+            browser = None
+            try:
+                logger.info(f"Playwright attempt {attempt + 1}/{MAX_RETRIES} for {url}")
+                
+                with sync_playwright() as p:
+                    # Launch browser with anti-detection measures
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=[
+                            "--disable-blink-features=AutomationControlled",  # Hides automation
+                            "--disable-dev-shm-usage",  # Prevents crashes on Linux servers
+                            "--no-sandbox",  # Allows running without sandboxing on headless servers
+                        ]
+                    )
+                    
+                    # Create page with realistic settings
+                    page = browser.new_page(
+                        user_agent=get_random_user_agent(),
+                        viewport={"width": 1920, "height": 1080},  # Real browser size
+                    )
+                    
+                    # Set extra HTTP headers to look even more like real browser
+                    page.set_extra_http_headers({
+                        "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+                        "Referer": "https://www.amazon.it/",
+                    })
+                    
+                    # Set cookies
+                    page.context.add_cookies([
+                        {"name": "i18n-prefs", "value": "EUR", "url": "https://www.amazon.it"}
+                    ])
+                    
+                    # Navigate to page - wait for network to be idle (all requests finished)
+                    page.goto(url, wait_until="networkidle", timeout=20000)
+                    
+                    # Simulate human behavior - wait a bit before extracting data
+                    sleep_with_jitter(random.uniform(1.0, 2.5))
+                    
+                    # Wait for price element to appear 
+                    # If it doesn't appear in 5 seconds, it's not a real product page
+                    try:
+                        page.wait_for_selector("span.a-price-whole", timeout=5000)
+                    except Exception as e:
+                        logger.warning(f"Price element not found - possibly captcha/blocked page")
+                        page.context.browser.close() if page.context.browser else None
+                        continue
+                    
+                    # Get final HTML (now includes all JS-rendered content)
+                    html = page.content()
+                    soup = BeautifulSoup(html, "html.parser")
+                    
+                    # Check if we got captcha'd
+                    if is_captcha_page(None, soup):
+                        logger.warning(f"Captcha detected with Playwright for {url}")
+                        page.context.browser.close() if page.context.browser else None
+                        if attempt < MAX_RETRIES - 1:
+                            sleep_with_jitter(RETRY_DELAY * (attempt + 1))
+                        continue
+                    
+                    # Extract data
+                    asin = extract_asin(url)
+                    price_whole = extract_price_whole(soup)
+                    price_fraction = extract_price_fraction(soup)
+                    name = extract_name(soup)
+                    discount = extract_discount(soup)
+                    img_url = extract_image(soup)
+                    
+                    page.context.browser.close() if page.context.browser else None
+                    
+                    # Success criteria
+                    if all([asin, price_whole, price_fraction, name]):
+                        logger.info(f"Playwright SUCCESS: {asin}: EUR {price_whole}{price_fraction}")
+                        sleep_with_jitter(delay)
+                        return "0", asin, name, price_whole, price_fraction, discount, img_url
+                    
+                    logger.warning(f"Missing data from Playwright for {url}")
+                    return "-2", "Error", "Error", "Error", "", "Error", "N/A"
+            
+            except Exception as e:
+                logger.error(f"Playwright error on attempt {attempt + 1}: {str(e)}")
+                if browser:
+                    try:
+                        browser.close()
+                    except:
+                        pass
+                
+                if attempt < MAX_RETRIES - 1:
+                    sleep_with_jitter(RETRY_DELAY * (attempt + 1))
+        
+        return "-1", "", "", "", "", "", ""
+    
+    except Exception as e:
+        logger.error(f"Playwright fatal error: {str(e)}")
+        return "-1", "", "", "", "", "", ""
+
+
 def get_product_details(
     url: str,
     delay: float = BASE_DELAY,
     session: Optional[requests.Session] = None,
 ) -> Tuple:
+    """
+    Primary scraper using HTTP requests (fast). 
+    Falls back to Playwright if blocked/captcha detected.
+    
+    Returns: (status_code, asin, name, price_whole, price_fraction, discount, img_url)
+    Status codes:
+      "0"  = Success
+      "-1" = Request/Network error
+      "-2" = Missing data
+      "-3" = Captcha detected
+    """
 
     url = url.strip()
     if not url.startswith(("http://", "https://")):
@@ -66,10 +198,12 @@ def get_product_details(
         created_session = True
 
     cookies = {'i18n-prefs': 'EUR'}
+    requests_failed = False
 
     try:
-        # App-level retry loop (captcha / parse / timeout handling)
-        for attempt in range(MAX_RETRIES):
+        # ========== PHASE 1: Try with HTTP requests (fast) ==========
+        logger.info(f"🔍 Trying requests for {url}")
+        for attempt in range(2):  # Only 2 attempts with requests
             try:
                 headers = build_headers(attempt)
                 response = active_session.get(
@@ -82,13 +216,11 @@ def get_product_details(
 
                 soup = BeautifulSoup(response.text, "html.parser")
 
-                # Detect real Amazon captcha/robot-check pages only
+                # Detect real Amazon captcha/robot-check pages
                 if is_captcha_page(response, soup):
-                    logger.warning(f"Captcha detected per {url} - attempt {attempt + 1}")
-                    if attempt < MAX_RETRIES - 1:
-                        sleep_with_jitter(RETRY_DELAY * (attempt + 1))
-                        continue
-                    return "-3", "Error", "Error", "Error", "", "Error", "N/A"
+                    logger.warning(f"Captcha detected via requests - will try Playwright")
+                    requests_failed = True
+                    break  # Exit requests loop, fallback to Playwright
 
                 # Extract data
                 asin = extract_asin(url)
@@ -99,25 +231,39 @@ def get_product_details(
                 img_url = extract_image(soup)
 
                 if all([asin, price_whole, price_fraction, name]):
-                    logger.info(f"Scraped {asin}: EUR {price_whole}{price_fraction}")
+                    logger.info(f"Requests SUCCESS: {asin}: EUR {price_whole}{price_fraction}")
                     sleep_with_jitter(delay)
                     return "0", asin, name, price_whole, price_fraction, discount, img_url
 
-                logger.warning(f"Missing data for {url}")
-                return "-2", "Error", "Error", "Error", "", "Error", "N/A"
+                logger.warning(f"Missing data from requests - will try Playwright")
+                requests_failed = True
+                break  # Try Playwright
 
             except requests.Timeout:
-                logger.warning(f"Timeout for {url} - attempt {attempt + 1}")
-                if attempt < MAX_RETRIES - 1:
-                    sleep_with_jitter(RETRY_DELAY * (attempt + 1))
-                    continue
-                return "-1", "", "", "", "", "", ""
+                logger.warning(f"Timeout from requests (attempt {attempt + 1}/2) - will try Playwright")
+                requests_failed = True
+                break  # Try Playwright
 
             except requests.RequestException as e:
-                logger.error(f"Request error: {e}")
-                return "-1", "", "", "", "", "", ""
+                logger.warning(f"Request error: {e} - will try Playwright")
+                requests_failed = True
+                break  # Try Playwright
 
+        # ========== PHASE 2: Fallback to Playwright if requests failed ==========
+        if requests_failed and USE_PLAYWRIGHT_FALLBACK:
+            logger.info(f"Fallback: Starting Playwright for {url}")
+            result = get_product_details_playwright(url, delay)
+            
+            # Only return Playwright result if successful (status = "0")
+            if result[0] == "0":
+                return result
+            
+            # If Playwright also failed, return the Playwright error
+            return result
+        
+        # If we get here, requests failed and Playwright is disabled
         return "-1", "", "", "", "", "", ""
+
     finally:
         if created_session and active_session is not None:
             active_session.close()
@@ -139,6 +285,13 @@ def build_headers(attempt: int) -> dict:
         "DNT": "1",
         "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="125", "Google Chrome";v="125"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
     }
 
 
@@ -196,7 +349,8 @@ def extract_image(soup) -> str:
 
 def is_captcha_page(response, soup) -> bool:
     """Return True only when the response looks like Amazon's captcha challenge page."""
-    final_url = (response.url or "").lower()
+    # Handle case where response is None (e.g., when called from Playwright)
+    final_url = (response.url or "").lower() if response else ""
     if "validatecaptcha" in final_url or "/errors/validatecaptcha" in final_url:
         return True
 
