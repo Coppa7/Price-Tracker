@@ -112,15 +112,6 @@ def get_product_details_playwright(url: str, delay: float = BASE_DELAY) -> Tuple
                     # Simulate human behavior - wait a bit before extracting data
                     sleep_with_jitter(random.uniform(1.0, 2.5))
                     
-                    # Wait for price element to appear 
-                    # If it doesn't appear in 5 seconds, it's not a real product page
-                    try:
-                        page.wait_for_selector("span.a-price-whole", timeout=5000)
-                    except Exception as e:
-                        logger.warning(f"Price element not found - possibly captcha/blocked page")
-                        page.context.browser.close() if page.context.browser else None
-                        continue
-                    
                     # Get final HTML (now includes all JS-rendered content)
                     html = page.content()
                     soup = BeautifulSoup(html, "html.parser")
@@ -134,23 +125,26 @@ def get_product_details_playwright(url: str, delay: float = BASE_DELAY) -> Tuple
                         continue
                     
                     # Extract data
-                    asin = extract_asin(url)
-                    price_whole = extract_price_whole(soup)
-                    price_fraction = extract_price_fraction(soup)
-                    name = extract_name(soup)
-                    discount = extract_discount(soup)
-                    img_url = extract_image(soup)
+                    asin = normalize_not_found(extract_asin(url))
+                    price_whole = normalize_not_found(extract_price_whole(soup))
+                    price_fraction = normalize_not_found(extract_price_fraction(soup), fallback="")
+                    name = normalize_not_found(extract_name(soup))
+                    discount = normalize_not_found(extract_discount(soup))
+                    img_url = normalize_not_found(extract_image(soup), fallback="N/A")
                     
                     page.context.browser.close() if page.context.browser else None
                     
-                    # Success criteria
-                    if all([asin, price_whole, price_fraction, name]):
-                        logger.info(f"Playwright SUCCESS: {asin}: EUR {price_whole}{price_fraction}")
-                        sleep_with_jitter(delay)
-                        return "0", asin, name, price_whole, price_fraction, discount, img_url
-                    
-                    logger.warning(f"Missing data from Playwright for {url}")
-                    return "-2", "Error", "Error", "Error", "", "Error", "N/A"
+                    logger.info(
+                        "Playwright scraped %s: name=%s price=%s%s discount=%s img=%s",
+                        asin,
+                        name,
+                        price_whole,
+                        price_fraction,
+                        discount,
+                        img_url,
+                    )
+                    sleep_with_jitter(delay)
+                    return "0", asin, name, price_whole, price_fraction, discount, img_url
             
             except Exception as e:
                 logger.error(f"Playwright error on attempt {attempt + 1}: {str(e)}")
@@ -222,22 +216,25 @@ def get_product_details(
                     requests_failed = True
                     break  # Exit requests loop, fallback to Playwright
 
-                # Extract data
-                asin = extract_asin(url)
-                price_whole = extract_price_whole(soup)
-                price_fraction = extract_price_fraction(soup)
-                name = extract_name(soup)
-                discount = extract_discount(soup)
-                img_url = extract_image(soup)
+                # Extract data; missing fields are normalized to placeholders
+                asin = normalize_not_found(extract_asin(url))
+                price_whole = normalize_not_found(extract_price_whole(soup))
+                price_fraction = normalize_not_found(extract_price_fraction(soup), fallback="")
+                name = normalize_not_found(extract_name(soup))
+                discount = normalize_not_found(extract_discount(soup))
+                img_url = normalize_not_found(extract_image(soup), fallback="N/A")
 
-                if all([asin, price_whole, price_fraction, name]):
-                    logger.info(f"Requests SUCCESS: {asin}: EUR {price_whole}{price_fraction}")
-                    sleep_with_jitter(delay)
-                    return "0", asin, name, price_whole, price_fraction, discount, img_url
-
-                logger.warning(f"Missing data from requests - will try Playwright")
-                requests_failed = True
-                break  # Try Playwright
+                logger.info(
+                    "Requests scraped %s: name=%s price=%s%s discount=%s img=%s",
+                    asin,
+                    name,
+                    price_whole,
+                    price_fraction,
+                    discount,
+                    img_url,
+                )
+                sleep_with_jitter(delay)
+                return "0", asin, name, price_whole, price_fraction, discount, img_url
 
             except requests.Timeout:
                 logger.warning(f"Timeout from requests (attempt {attempt + 1}/2) - will try Playwright")
@@ -345,6 +342,11 @@ def extract_discount(soup) -> str:
 def extract_image(soup) -> str:
     img_tag = soup.find("img", id="landingImage")
     return img_tag.get('src', 'N/A') if img_tag else 'N/A'
+
+
+def normalize_not_found(value: str, fallback: str = "Not found") -> str:
+    value = (value or "").strip()
+    return value if value else fallback
 
 
 def is_captcha_page(response, soup) -> bool:
