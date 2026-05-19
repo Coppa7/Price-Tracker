@@ -11,13 +11,13 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 app = Flask(__name__)   
 
 # REMOVE IN PRODUCTION 
-#app.config['APPLICATION_ROOT'] = '/'
-#app.secret_key = "local"
+app.config['APPLICATION_ROOT'] = '/'
+app.secret_key = "local"
 
 
 
-app.config['APPLICATION_ROOT'] = '/PriceTracker'
-app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+#app.config['APPLICATION_ROOT'] = '/PriceTracker'
+#app.secret_key = os.environ.get("FLASK_SECRET_KEY")
 
 
 class PrefixMiddleware:
@@ -55,8 +55,8 @@ class PrefixMiddleware:
         return [b"Not Found"]
 
 
-app.wsgi_app = PrefixMiddleware(ProxyFix(app.wsgi_app), prefix="/PriceTracker")
-#app.wsgi_app = PrefixMiddleware(ProxyFix(app.wsgi_app), prefix="")  # Empty prefix for local dev, set to "/PriceTracker" in production
+#app.wsgi_app = PrefixMiddleware(ProxyFix(app.wsgi_app), prefix="/PriceTracker")
+app.wsgi_app = PrefixMiddleware(ProxyFix(app.wsgi_app), prefix="")  # Empty prefix for local dev, set to "/PriceTracker" in production
 
 
 

@@ -1,3 +1,5 @@
+import re
+import os
 import requests
 from requests.adapters import HTTPAdapter
 from bs4 import BeautifulSoup
@@ -27,6 +29,7 @@ RETRY_DELAY = 2
 BASE_DELAY = 1.5  
 JITTER_RATIO = 0.2
 USE_PLAYWRIGHT_FALLBACK = True  # Abilita fallback a Playwright se requests fallisce
+PLAYWRIGHT_HEADLESS = os.environ.get("PLAYWRIGHT_HEADLESS", "1").lower() not in {"0", "false", "no"}
 
 FALLBACK_USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -36,6 +39,8 @@ FALLBACK_USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
 ]
+
+DESKTOP_USER_AGENT = FALLBACK_USER_AGENTS[0]
 
 class ScraperError(Exception):
     pass
@@ -60,6 +65,20 @@ def create_session() -> requests.Session:
     return session
 
 
+def build_desktop_context_kwargs() -> dict:
+    """Return a desktop-like browser context configuration."""
+    return {
+        "user_agent": DESKTOP_USER_AGENT,
+        "viewport": {"width": 1366, "height": 768},
+        "screen": {"width": 1366, "height": 768},
+        "device_scale_factor": 1,
+        "is_mobile": False,
+        "has_touch": False,
+        "locale": "it-IT",
+        "timezone_id": "Europe/Rome",
+    }
+
+
 def get_product_details_playwright(url: str, delay: float = BASE_DELAY) -> Tuple:
     """
     Fallback scraper using Playwright browser automation.
@@ -81,7 +100,7 @@ def get_product_details_playwright(url: str, delay: float = BASE_DELAY) -> Tuple
                 with sync_playwright() as p:
                     # Launch browser with anti-detection measures
                     browser = p.chromium.launch(
-                        headless=True,
+                        headless=PLAYWRIGHT_HEADLESS,
                         args=[
                             "--disable-blink-features=AutomationControlled",  # Hides automation
                             "--disable-dev-shm-usage",  # Prevents crashes on Linux servers
@@ -89,20 +108,18 @@ def get_product_details_playwright(url: str, delay: float = BASE_DELAY) -> Tuple
                         ]
                     )
                     
-                    # Create page with realistic settings
-                    page = browser.new_page(
-                        user_agent=get_random_user_agent(),
-                        viewport={"width": 1920, "height": 1080},  # Real browser size
-                    )
+                    # Create a desktop-like browser context before opening the page
+                    context = browser.new_context(**build_desktop_context_kwargs())
+                    page = context.new_page()
                     
                     # Set extra HTTP headers to look even more like real browser
                     page.set_extra_http_headers({
                         "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
                         "Referer": "https://www.amazon.it/",
                     })
-                    
-                    # Set cookies
-                    page.context.add_cookies([
+
+                    # Set cookies on the context so the whole browser session looks like a desktop shopper
+                    context.add_cookies([
                         {"name": "i18n-prefs", "value": "EUR", "url": "https://www.amazon.it"}
                     ])
                     
@@ -115,34 +132,28 @@ def get_product_details_playwright(url: str, delay: float = BASE_DELAY) -> Tuple
                     # Get final HTML (now includes all JS-rendered content)
                     html = page.content()
                     soup = BeautifulSoup(html, "html.parser")
+                    logger.debug("[Playwright] page.url=%s page.title=%s html_length=%s", page.url, page.title(), len(html))
+                    log_html_id_presence("Playwright", html)
+                    log_html_selector_state("Playwright", url, soup)
                     
                     # Check if we got captcha'd
                     if is_captcha_page(None, soup):
                         logger.warning(f"Captcha detected with Playwright for {url}")
-                        page.context.browser.close() if page.context.browser else None
+                        context.close()
+                        browser.close()
                         if attempt < MAX_RETRIES - 1:
                             sleep_with_jitter(RETRY_DELAY * (attempt + 1))
                         continue
                     
-                    # Extract data
-                    asin = normalize_not_found(extract_asin(url))
-                    price_whole = normalize_not_found(extract_price_whole(soup))
-                    price_fraction = normalize_not_found(extract_price_fraction(soup), fallback="")
-                    name = normalize_not_found(extract_name(soup))
-                    discount = normalize_not_found(extract_discount(soup))
-                    img_url = normalize_not_found(extract_image(soup), fallback="N/A")
-                    
-                    page.context.browser.close() if page.context.browser else None
-                    
-                    logger.info(
-                        "Playwright scraped %s: name=%s price=%s%s discount=%s img=%s",
-                        asin,
-                        name,
-                        price_whole,
-                        price_fraction,
-                        discount,
-                        img_url,
+                    # Extract data only from product containers
+                    asin, name, price_whole, price_fraction, discount, img_url = extract_scoped_product_details(
+                        url, soup, "Playwright"
                     )
+                    
+                    context.close()
+                    browser.close()
+
+                    log_scrape_result("Playwright", url, asin, name, price_whole, price_fraction, discount, img_url)
                     sleep_with_jitter(delay)
                     return "0", asin, name, price_whole, price_fraction, discount, img_url
             
@@ -195,8 +206,7 @@ def get_product_details(
     requests_failed = False
 
     try:
-        # ========== PHASE 1: Try with HTTP requests (fast) ==========
-        logger.info(f"🔍 Trying requests for {url}")
+        logger.info(f"Trying requests for {url}")
         for attempt in range(2):  # Only 2 attempts with requests
             try:
                 headers = build_headers(attempt)
@@ -209,6 +219,9 @@ def get_product_details(
                 response.raise_for_status()
 
                 soup = BeautifulSoup(response.text, "html.parser")
+                logger.debug("[Requests] response.url=%s html_length=%s", response.url, len(response.text))
+                log_html_id_presence("Requests", response.text)
+                log_html_selector_state("Requests", url, soup)
 
                 # Detect real Amazon captcha/robot-check pages
                 if is_captcha_page(response, soup):
@@ -216,23 +229,12 @@ def get_product_details(
                     requests_failed = True
                     break  # Exit requests loop, fallback to Playwright
 
-                # Extract data; missing fields are normalized to placeholders
-                asin = normalize_not_found(extract_asin(url))
-                price_whole = normalize_not_found(extract_price_whole(soup))
-                price_fraction = normalize_not_found(extract_price_fraction(soup), fallback="")
-                name = normalize_not_found(extract_name(soup))
-                discount = normalize_not_found(extract_discount(soup))
-                img_url = normalize_not_found(extract_image(soup), fallback="N/A")
-
-                logger.info(
-                    "Requests scraped %s: name=%s price=%s%s discount=%s img=%s",
-                    asin,
-                    name,
-                    price_whole,
-                    price_fraction,
-                    discount,
-                    img_url,
+                # Extract data only from product containers
+                asin, name, price_whole, price_fraction, discount, img_url = extract_scoped_product_details(
+                    url, soup, "Requests"
                 )
+
+                log_scrape_result("Requests", url, asin, name, price_whole, price_fraction, discount, img_url)
                 sleep_with_jitter(delay)
                 return "0", asin, name, price_whole, price_fraction, discount, img_url
 
@@ -246,7 +248,7 @@ def get_product_details(
                 requests_failed = True
                 break  # Try Playwright
 
-        # ========== PHASE 2: Fallback to Playwright if requests failed ==========
+        #Fallback to Playwright if requests failed 
         if requests_failed and USE_PLAYWRIGHT_FALLBACK:
             logger.info(f"Fallback: Starting Playwright for {url}")
             result = get_product_details_playwright(url, delay)
@@ -268,10 +270,7 @@ def get_product_details(
 
 def build_headers(attempt: int) -> dict:
     """Build request headers with a rotated User-Agent and deterministic fallback."""
-    user_agent = get_random_user_agent()
-
-    if not user_agent:
-        user_agent = FALLBACK_USER_AGENTS[attempt % len(FALLBACK_USER_AGENTS)]
+    user_agent = DESKTOP_USER_AGENT
 
     return {
         "User-Agent": user_agent,
@@ -330,8 +329,7 @@ def extract_price_fraction(soup) -> str:
     elem = soup.find("span", class_="a-price-fraction")
     return elem.get_text(strip=True) if elem else ""
 
-def extract_name(soup) -> str:
-    # Fallback a più selettori
+def extract_name(soup) -> str:  
     elem = soup.find("span", id="productTitle")
     return elem.get_text(strip=True) if elem else ""
 
@@ -344,9 +342,124 @@ def extract_image(soup) -> str:
     return img_tag.get('src', 'N/A') if img_tag else 'N/A'
 
 
+def _find_container_by_id(soup, container_id: str):
+    container = soup.find(id=container_id)
+    if container:
+        return container
+    return soup.select_one(f"#{container_id}")
+
+
+def extract_scoped_product_details(url: str, soup, source: str) -> Tuple[str, str, str, str, str, str]:
+    """Extract only from Amazon's centerCol/leftCol containers."""
+    main_container = _find_container_by_id(soup, "centerCol")
+    img_container = _find_container_by_id(soup, "leftCol")
+
+    if not main_container:
+        logger.warning("[%s] missing main_container (div#centerCol) -> product text may be ambiguous or absent", source)
+    if not img_container:
+        logger.warning("[%s] missing img_container (div#leftCol) -> image may be unavailable", source)
+    if not main_container or not img_container:
+        log_raw_html_on_missing_container(source, str(soup))
+
+    asin = normalize_not_found(extract_asin(url))
+
+    if main_container:
+        price_whole_tag = main_container.find("span", class_="a-price-whole")
+        price_fraction_tag = main_container.find("span", class_="a-price-fraction")
+        name_tag = main_container.find("span", id="productTitle")
+        discount_tag = main_container.find("span", class_="savingsPercentage")
+
+        price_whole = normalize_not_found(price_whole_tag.get_text(strip=True) if price_whole_tag else "")
+        price_fraction = normalize_not_found(price_fraction_tag.get_text(strip=True) if price_fraction_tag else "", fallback="")
+        name = normalize_not_found(name_tag.get_text(strip=True) if name_tag else "")
+        discount = normalize_not_found(discount_tag.get_text(strip=True) if discount_tag else "")
+    else:
+        price_whole = "Not found"
+        price_fraction = ""
+        name = "Not found"
+        discount = "Not found"
+
+    if img_container:
+        img_tag = img_container.find("img", id="landingImage")
+        img_url = normalize_not_found(img_tag.get("src", "") if img_tag else "", fallback="N/A")
+    else:
+        img_url = "N/A"
+
+    return asin, name, price_whole, price_fraction, discount, img_url
+
+
 def normalize_not_found(value: str, fallback: str = "Not found") -> str:
     value = (value or "").strip()
     return value if value else fallback
+
+
+def log_html_selector_state(source: str, url: str, soup) -> None:
+    """Log which important HTML objects are present and what happens if they are missing."""
+    main_container = _find_container_by_id(soup, "centerCol")
+    img_container = _find_container_by_id(soup, "leftCol")
+
+    checks = {
+        "asin_from_url": (bool(extract_asin(url)), "If missing, ASIN will be 'Not found'"),
+        "centerCol": (bool(main_container), "If missing, name/price/discount may be 'Not found'"),
+        "leftCol": (bool(img_container), "If missing, image URL will be 'N/A'"),
+        "productTitle": (bool(main_container and main_container.find("span", id="productTitle")), "If missing, product name will be 'Not found'"),
+        "a-price-whole": (bool(main_container and main_container.find("span", class_="a-price-whole")), "If missing, price whole will be 'Not found'"),
+        "a-price-fraction": (bool(main_container and main_container.find("span", class_="a-price-fraction")), "If missing, price fraction will be empty"),
+        "savingsPercentage": (bool(main_container and main_container.find("span", class_="savingsPercentage")), "If missing, discount will be 'Not found'"),
+        "landingImage": (bool(img_container and img_container.find("img", id="landingImage")), "If missing, image URL will be 'N/A'"),
+    }
+
+    logger.debug("[%s] HTML selector state for %s", source, url)
+    for name, (present, consequence) in checks.items():
+        if present:
+            logger.debug("[%s] selector present: %s", source, name)
+        else:
+            logger.warning("[%s] selector missing: %s -> %s", source, name, consequence)
+
+    title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    if title:
+        logger.debug("[%s] page title: %s", source, title)
+    else:
+        logger.warning("[%s] page title missing -> page may be partial or blocked", source)
+
+
+def log_raw_html_on_missing_container(source: str, html: str, limit: int = 0) -> None:
+    """Dump the received HTML when the expected product containers are missing."""
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    dump_path = os.path.join(project_root, "amazon_raw.html")
+    payload = html[:limit] if limit and limit > 0 else html
+
+    try:
+        with open(dump_path, "w", encoding="utf-8") as dump_file:
+            dump_file.write(f"<!-- source: {source} -->\n")
+            dump_file.write(payload)
+        logger.warning("[%s] raw HTML saved to %s", source, dump_path)
+    except OSError as exc:
+        logger.warning("[%s] failed to save raw HTML to %s: %s", source, dump_path, exc)
+
+
+def log_html_id_presence(source: str, html: str) -> None:
+    """Log whether important ids appear in the raw HTML when BeautifulSoup misses them."""
+    for container_id in ("centerCol", "leftCol"):
+        found_in_html = bool(re.search(rf'id=["\']{re.escape(container_id)}["\']', html))
+        if found_in_html:
+            logger.debug("[%s] raw HTML contains id=%s", source, container_id)
+        else:
+            logger.warning("[%s] raw HTML missing id=%s", source, container_id)
+
+
+def log_scrape_result(source: str, url: str, asin: str, name: str, price_whole: str, price_fraction: str, discount: str, img_url: str) -> None:
+    logger.info(
+        "[%s] scraped url=%s asin=%s name=%s price=%s%s discount=%s img=%s",
+        source,
+        url,
+        asin,
+        name,
+        price_whole,
+        price_fraction,
+        discount,
+        img_url,
+    )
 
 
 def is_captcha_page(response, soup) -> bool:

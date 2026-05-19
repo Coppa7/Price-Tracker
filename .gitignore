@@ -23,6 +23,7 @@ dist/
 # App runtime data
 cache_dir/
 database_dir/
+amazon_raw.html
 
 # Node / Tailwind
 node_modules/
