@@ -24,6 +24,7 @@ dist/
 cache_dir/
 database_dir/
 amazon_raw.html
+SECURITY_ISSUES.md
 
 # Node / Tailwind
 node_modules/

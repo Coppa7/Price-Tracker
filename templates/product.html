@@ -74,7 +74,7 @@
 
             fetch("{{ url_for('bookmark_func') }}", {
                 method: "POST",
-                headers: { "Content-Type": "application/json"},
+                headers: { "Content-Type": "application/json", "X-CSRFToken": "{{ csrf_token() }}"},
                 body: JSON.stringify(details)
             })
             .then(response => {

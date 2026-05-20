@@ -2,6 +2,8 @@ from flask import Flask, render_template, request, session, url_for, redirect, j
 from datetime import timedelta
 from scraper.amazon_scraper import get_product_details
 from flask_caching import Cache
+from flask_wtf import CSRFProtect
+from flask_wtf.csrf import generate_csrf
 import sqlite3
 import os
 from datetime import date, datetime as dt
@@ -95,6 +97,16 @@ def get_db():
         g.db = sqlite3.connect(path)
         g.db.row_factory = sqlite3.Row
     return g.db
+
+
+# Initialize CSRF protection
+csrf = CSRFProtect()
+csrf.init_app(app)
+
+
+@app.context_processor
+def inject_csrf_token():
+    return dict(csrf_token=generate_csrf)
 
 
 @app.teardown_appcontext
