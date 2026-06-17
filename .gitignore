@@ -25,6 +25,8 @@ cache_dir/
 database_dir/
 amazon_raw.html
 SECURITY_ISSUES.md
+.amazon_throttle.lock
+.amazon_throttle.state
 
 # Node / Tailwind
 node_modules/

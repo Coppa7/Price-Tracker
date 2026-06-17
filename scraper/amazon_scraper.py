@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 import time
 import logging
 import random
-from threading import Semaphore
+from threading import Semaphore, Lock
 from typing import Optional, Tuple
 import importlib
 from urllib3.util.retry import Retry
@@ -39,6 +39,89 @@ _playwright_semaphore = Semaphore(_PLAYWRIGHT_MAX_CONCURRENT)
 
 # Hard cap on the HTML debug dump to prevent large pages from filling disk.
 _MAX_HTML_DUMP_BYTES = int(os.environ.get("MAX_HTML_DUMP_BYTES", str(512 * 1024)))  # 512 KB
+
+# ---------------------------------------------------------------------------
+# Global Amazon request throttle.
+# All scrape paths (requests + Playwright) share one lock and one timestamp.
+# This serializes outbound requests to Amazon from the whole server process,
+# regardless of how many concurrent users trigger them simultaneously.
+# Default: 4 seconds between requests (~15 req/min max from this server IP).
+# Override with env var AMAZON_MIN_INTERVAL (seconds, float).
+# ---------------------------------------------------------------------------
+AMAZON_MIN_INTERVAL = float(os.environ.get("AMAZON_MIN_INTERVAL", "4.0"))
+
+# ---------------------------------------------------------------------------
+# Cross-process throttle implementation.
+# On Linux (production): fcntl.flock() on a shared file — the kernel ensures
+# mutual exclusion across all gunicorn worker processes without Redis.
+# On Windows (dev): falls back to threading.Lock (single-process only).
+# ---------------------------------------------------------------------------
+try:
+    import fcntl
+    import struct
+    _USE_FLOCK = True
+except ImportError:
+    _USE_FLOCK = False  # Windows: fcntl unavailable
+
+_THROTTLE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_THROTTLE_LOCK_PATH = os.path.join(_THROTTLE_DIR, ".amazon_throttle.lock")
+_THROTTLE_STATE_PATH = os.path.join(_THROTTLE_DIR, ".amazon_throttle.state")
+
+# In-process fallback state (Windows dev only)
+_amazon_proc_lock = Lock()
+_amazon_last_request_local: float = 0.0
+
+
+def _throttle_amazon_request() -> None:
+    """
+    Serialize Amazon requests globally, across all gunicorn workers.
+    Prevents multiple workers from hammering Amazon simultaneously.
+    """
+    if _USE_FLOCK:
+        _flock_throttle()
+    else:
+        _proc_throttle()
+
+
+def _flock_throttle() -> None:
+    """Linux/macOS: use fcntl file lock shared across processes."""
+    try:
+        lock_file = open(_THROTTLE_LOCK_PATH, "w")
+    except OSError as exc:
+        logger.warning("Amazon throttle: cannot open lock file, skipping: %s", exc)
+        return
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)  # blocks until no other worker holds it
+
+        try:
+            with open(_THROTTLE_STATE_PATH, "rb") as sf:
+                last = struct.unpack("d", sf.read(8))[0]
+        except (FileNotFoundError, struct.error):
+            last = 0.0
+
+        now = time.time()
+        wait = AMAZON_MIN_INTERVAL - (now - last)
+        if wait > 0:
+            logger.debug("Global Amazon throttle: waiting %.2fs", wait)
+            time.sleep(wait)
+
+        with open(_THROTTLE_STATE_PATH, "wb") as sf:
+            sf.write(struct.pack("d", time.time()))
+    finally:
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+        lock_file.close()
+
+
+def _proc_throttle() -> None:
+    """Windows fallback: in-process lock only (works for a single worker)."""
+    global _amazon_last_request_local
+    with _amazon_proc_lock:
+        now = time.time()
+        wait = AMAZON_MIN_INTERVAL - (now - _amazon_last_request_local)
+        if wait > 0:
+            logger.debug("Global Amazon throttle (in-process): waiting %.2fs", wait)
+            time.sleep(wait)
+        _amazon_last_request_local = time.time()
 
 FALLBACK_USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -138,6 +221,7 @@ def get_product_details_playwright(url: str, delay: float = BASE_DELAY) -> Tuple
                     ])
 
                     # Navigate to page - wait for network to be idle (all requests finished)
+                    _throttle_amazon_request()
                     page.goto(url, wait_until="networkidle", timeout=20000)
 
                     # Simulate human behavior - wait a bit before extracting data
@@ -223,6 +307,7 @@ def get_product_details(
 
     try:
         logger.info(f"Trying requests for {url}")
+        _throttle_amazon_request()
         for attempt in range(2):  # Only 2 attempts with requests
             try:
                 headers = build_headers(attempt)

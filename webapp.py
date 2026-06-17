@@ -14,16 +14,10 @@ import uuid
 from urllib.parse import urlparse
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-app = Flask(__name__)   
+app = Flask(__name__)
 
-# REMOVE IN PRODUCTION 
-app.config['APPLICATION_ROOT'] = '/'
-app.secret_key = "local"
-
-
-
-#app.config['APPLICATION_ROOT'] = '/PriceTracker'
-#app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+app.config['APPLICATION_ROOT'] = os.environ.get('APPLICATION_ROOT', '/')
+app.secret_key = os.environ.get('FLASK_SECRET_KEY')
 
 
 class PrefixMiddleware:
@@ -61,7 +55,6 @@ class PrefixMiddleware:
         return [b"Not Found"]
 
 
-#app.wsgi_app = PrefixMiddleware(ProxyFix(app.wsgi_app), prefix="/PriceTracker")
 # x_for=1 trusts exactly one proxy hop (Cloudflare). If traffic can reach nginx
 # directly (bypassing Cloudflare), an attacker can spoof X-Forwarded-For.
 # The definitive fix for that is in nginx — always overwrite the header before
@@ -70,14 +63,13 @@ class PrefixMiddleware:
 #   proxy_set_header X-Forwarded-Proto $scheme;
 app.wsgi_app = PrefixMiddleware(
     ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=0, x_port=0),
-    prefix="",  # set to "/PriceTracker" in production
+    prefix=os.environ.get('APP_PREFIX', ''),
 )
 
 
 
-# Fail fast if the secret key is missing.
 if not app.secret_key:
-    raise RuntimeError("FLASK_SECRET_KEY is required")
+    raise RuntimeError("FLASK_SECRET_KEY environment variable is required")
 
 
 cache_folder = "cache_dir"
@@ -374,8 +366,6 @@ def give_bookmark_info(asin):
     db = get_db()
     cursor = db.cursor()
 
-    sql_query = "SELECT price, date FROM graph_data WHERE asin = ?"
-
     cursor.execute("SELECT price, date FROM graph_data WHERE asin = ? ORDER BY date ASC", (asin,))
     rows = cursor.fetchall()
 
@@ -437,5 +427,5 @@ def error_page():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False)
 
