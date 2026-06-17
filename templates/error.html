@@ -1,24 +1,78 @@
 <!DOCTYPE html>
-<html lang = "en">
-    <head>
-        <meta charset = "UTF-8">
-        <title>Error Page</title>
-    </head>
-    <body>
-        <main>
-            <div class = "title"><h1>You have encountered an error</h1></div>
-            <div class = "error_description">
-                <div class = "error_id"><h3>Error code: {{ error_code }}</h3></div>
-                <div class = "error_desc">
-                    {% if error_code == "-1" %}
-                        <h3>Connection timed out or invalid URL</h3>
-                    {% elif error_code == "-2" %}
-                        <h3>The page couldn't be accessed</h3>
-                    {% elif error_code == "-4" %}
-                        <h3>Invalid URL. Only Amazon Italy product pages are accepted (amazon.it/dp/...)</h3>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/output.css') }}">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <title>Error — Amazon Price Tracker</title>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .hero-gradient {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #1a2744 100%);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-gray-900 min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="hero-gradient shadow-lg">
+        <div class="px-4 sm:px-6 lg:px-8 py-5 flex items-center gap-3">
+            <span class="material-icons text-amber-400 text-3xl">price_check</span>
+            <a href="{{ url_for('home') }}" class="text-white text-2xl font-bold tracking-tight hover:text-amber-300 transition-colors">
+                Amazon Price Tracker
+            </a>
+        </div>
+    </header>
+
+    <!-- Error Body -->
+    <main class="flex-1 flex items-center justify-center px-4 py-16">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-10 max-w-md w-full text-center">
+
+            <!-- Icon -->
+            <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-red-50 mb-6">
+                <span class="material-icons text-red-400 text-4xl">
+                    {% if error_code == "-1" %}wifi_off
+                    {% elif error_code == "-2" %}lock
+                    {% elif error_code == "-4" %}link_off
+                    {% else %}error_outline
                     {% endif %}
-                </div>
+                </span>
             </div>
-        </main>
-    </body>
+
+            <!-- Title -->
+            <h1 class="text-2xl font-extrabold text-slate-800 mb-2">Something went wrong</h1>
+
+            <!-- Error code badge -->
+            <span class="inline-block bg-red-50 text-red-500 text-xs font-mono font-semibold px-3 py-1 rounded-full mb-5">
+                Error {{ error_code }}
+            </span>
+
+            <!-- Description -->
+            <p class="text-slate-500 text-base leading-relaxed mb-8">
+                {% if error_code == "-1" %}
+                    The request timed out or the URL is invalid. Check your connection and try again.
+                {% elif error_code == "-2" %}
+                    The page couldn't be accessed. Amazon may have blocked the request.
+                {% elif error_code == "-4" %}
+                    Invalid URL. Only Amazon Italy product pages are supported.<br>
+                    <span class="text-xs font-mono text-slate-400 mt-1 block">amazon.it/dp/...</span>
+                {% else %}
+                    An unexpected error occurred. Please try again.
+                {% endif %}
+            </p>
+
+            <!-- Back button -->
+            <a href="{{ url_for('home') }}"
+               class="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-b from-amber-400 to-amber-500 text-slate-900 font-bold rounded-xl shadow hover:from-amber-300 hover:to-amber-400 transition-all">
+                <span class="material-icons text-base">arrow_back</span>
+                Go back home
+            </a>
+        </div>
+    </main>
+
+</body>
 </html>

@@ -17,7 +17,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 app = Flask(__name__)
 
 app.config['APPLICATION_ROOT'] = os.environ.get('APPLICATION_ROOT', '/')
-app.secret_key = os.environ.get('FLASK_SECRET_KEY')
+#app.secret_key = os.environ.get('FLASK_SECRET_KEY')
+app.secret_key = "local"
 
 
 class PrefixMiddleware:
