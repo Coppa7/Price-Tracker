@@ -4,10 +4,14 @@ from scraper.amazon_scraper import get_product_details
 from flask_caching import Cache
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import generate_csrf
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import sqlite3
 import os
+import re
 from datetime import date, datetime as dt
 import uuid
+from urllib.parse import urlparse
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)   
@@ -58,7 +62,16 @@ class PrefixMiddleware:
 
 
 #app.wsgi_app = PrefixMiddleware(ProxyFix(app.wsgi_app), prefix="/PriceTracker")
-app.wsgi_app = PrefixMiddleware(ProxyFix(app.wsgi_app), prefix="")  # Empty prefix for local dev, set to "/PriceTracker" in production
+# x_for=1 trusts exactly one proxy hop (Cloudflare). If traffic can reach nginx
+# directly (bypassing Cloudflare), an attacker can spoof X-Forwarded-For.
+# The definitive fix for that is in nginx — always overwrite the header before
+# passing it upstream:
+#   proxy_set_header X-Forwarded-For $remote_addr;
+#   proxy_set_header X-Forwarded-Proto $scheme;
+app.wsgi_app = PrefixMiddleware(
+    ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=0, x_port=0),
+    prefix="",  # set to "/PriceTracker" in production
+)
 
 
 
@@ -102,6 +115,85 @@ def get_db():
 # Initialize CSRF protection
 csrf = CSRFProtect()
 csrf.init_app(app)
+
+# ---------------------------------------------------------------------------
+# Rate limiting — Cloudflare forwards real IP in X-Forwarded-For.
+# ProxyFix (already configured above) rewrites REMOTE_ADDR before Limiter
+# reads it, so get_remote_address() sees the correct client IP.
+# ---------------------------------------------------------------------------
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=[],          # No global limit; apply per-route only.
+    storage_uri="memory://",    # In-process store; swap for Redis in production.
+)
+
+# ---------------------------------------------------------------------------
+# SSRF guard — only accept genuine Amazon Italy product URLs.
+# Valid pattern: https://www.amazon.it/*/dp/<ASIN>[/...]
+# ASIN is always exactly 10 uppercase alphanumeric characters.
+# ---------------------------------------------------------------------------
+_ALLOWED_AMAZON_HOSTS = {"www.amazon.it", "amazon.it"}
+_ASIN_RE = re.compile(r"^[A-Z0-9]{10}$")
+
+def _validate_amazon_url(url: str) -> bool:
+    """Return True only if the URL is an amazon.it product page."""
+    try:
+        parsed = urlparse(url if url.startswith("http") else "https://" + url)
+    except ValueError:
+        return False
+
+    if parsed.scheme not in ("http", "https"):
+        return False
+    if parsed.hostname not in _ALLOWED_AMAZON_HOSTS:
+        return False
+
+    # Path must contain /dp/<ASIN>
+    match = re.search(r"/dp/([A-Za-z0-9]{10})(?:/|$|\?)", parsed.path)
+    if not match:
+        return False
+
+    asin = match.group(1).upper()
+    return bool(_ASIN_RE.match(asin))
+
+
+# ---------------------------------------------------------------------------
+# Security headers — applied to every response.
+# ---------------------------------------------------------------------------
+@app.after_request
+def set_security_headers(response):
+    # Block clickjacking
+    response.headers["X-Frame-Options"] = "DENY"
+    # Block MIME sniffing
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    # Enforce HTTPS for 1 year (Cloudflare terminates TLS, but belt-and-suspenders)
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # CSP: templates use inline <script> blocks, so 'unsafe-inline' is required for now.
+    # CDNs: cdn.jsdelivr.net (Chart.js, SweetAlert2), fonts.googleapis.com/gstatic.com.
+    # Images: Amazon serves product photos from m.media-amazon.com and related origins.
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' fonts.googleapis.com; "
+        "font-src fonts.gstatic.com; "
+        "img-src 'self' data: *.amazon.it *.amazon.com m.media-amazon.com "
+        "images-na.ssl-images-amazon.com; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'"
+    )
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Cookie security — SESSION_COOKIE_SECURE requires HTTPS.
+# Set SESSION_COOKIE_INSECURE=1 in your local .env to allow plain HTTP dev.
+# ---------------------------------------------------------------------------
+_insecure_cookie = os.environ.get("SESSION_COOKIE_INSECURE", "").lower() in ("1", "true", "yes")
+app.config["SESSION_COOKIE_SECURE"] = not _insecure_cookie
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 
 @app.context_processor
@@ -149,8 +241,12 @@ def home():
     return render_template("main_page.html", bookmarks = bookmarks)
 
 @app.route("/query", methods=['POST'])
+@limiter.limit("10 per minute")
 def query():
     query_url = request.form["url_query"].strip()
+
+    if not _validate_amazon_url(query_url):
+        return redirect(url_for("error_page", error_code="-4"))
 
     cache_key = f"scrape:{query_url}"
     cached_result = cache.get(cache_key)
@@ -213,6 +309,7 @@ def product_page(asin):
     )
     
 @app.route("/bookmark", methods=["POST"])
+@limiter.limit("30 per minute")
 def bookmark_func():
     db = get_db()
     cursor = db.cursor()
@@ -293,7 +390,8 @@ def give_bookmark_info(asin):
     
     
 
-@app.route("/unbook", methods = ["POST"])
+@app.route("/unbook", methods=["POST"])
+@limiter.limit("30 per minute")
 def unbook_func():
     # Remove mapping only for this anonymous session; delete product when unused
     db = get_db()
@@ -338,6 +436,6 @@ def error_page():
     
 
 
-if __name__ == '__main__': 
+if __name__ == '__main__':
     app.run(debug=True)
 

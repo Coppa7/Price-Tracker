@@ -14,6 +14,8 @@
                         <h3>Connection timed out or invalid URL</h3>
                     {% elif error_code == "-2" %}
                         <h3>The page couldn't be accessed</h3>
+                    {% elif error_code == "-4" %}
+                        <h3>Invalid URL. Only Amazon Italy product pages are accepted (amazon.it/dp/...)</h3>
                     {% endif %}
                 </div>
             </div>

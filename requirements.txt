@@ -25,4 +25,5 @@ urllib3==2.6.3
 Werkzeug==3.1.5
 zope.event==6.1
 zope.interface==8.2
-Flask-WTF==1.1.1
+Flask-WTF==1.2.2
+Flask-Limiter==3.9.0

@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 import time
 import logging
 import random
+from threading import Semaphore
 from typing import Optional, Tuple
 import importlib
 from urllib3.util.retry import Retry
@@ -25,11 +26,19 @@ if not PLAYWRIGHT_AVAILABLE:
     logger.warning("Playwright not installed. Browser fallback disabled. Install with: pip install playwright && playwright install")
 
 MAX_RETRIES = 3
-RETRY_DELAY = 2  
-BASE_DELAY = 1.5  
+RETRY_DELAY = 2
+BASE_DELAY = 1.5
 JITTER_RATIO = 0.2
 USE_PLAYWRIGHT_FALLBACK = True  # Abilita fallback a Playwright se requests fallisce
 PLAYWRIGHT_HEADLESS = os.environ.get("PLAYWRIGHT_HEADLESS", "1").lower() not in {"0", "false", "no"}
+
+# Max concurrent Playwright browser instances. Each one spawns a Chromium process
+# (~150-300 MB RAM). Raise via env var only if the server has headroom.
+_PLAYWRIGHT_MAX_CONCURRENT = int(os.environ.get("PLAYWRIGHT_MAX_CONCURRENT", "2"))
+_playwright_semaphore = Semaphore(_PLAYWRIGHT_MAX_CONCURRENT)
+
+# Hard cap on the HTML debug dump to prevent large pages from filling disk.
+_MAX_HTML_DUMP_BYTES = int(os.environ.get("MAX_HTML_DUMP_BYTES", str(512 * 1024)))  # 512 KB
 
 FALLBACK_USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -86,7 +95,12 @@ def get_product_details_playwright(url: str, delay: float = BASE_DELAY) -> Tuple
     if not PLAYWRIGHT_AVAILABLE:
         logger.error("Playwright not available. Install with: pip install playwright && playwright install")
         return "-1", "", "", "", "", "", ""
-    
+
+    # Reject immediately if too many Chromium processes are already running.
+    if not _playwright_semaphore.acquire(blocking=False):
+        logger.warning("Playwright concurrency limit (%d) reached, dropping request", _PLAYWRIGHT_MAX_CONCURRENT)
+        return "-1", "", "", "", "", "", ""
+
     url = url.strip()
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
@@ -96,7 +110,7 @@ def get_product_details_playwright(url: str, delay: float = BASE_DELAY) -> Tuple
             browser = None
             try:
                 logger.info(f"Playwright attempt {attempt + 1}/{MAX_RETRIES} for {url}")
-                
+
                 with sync_playwright() as p:
                     # Launch browser with anti-detection measures
                     browser = p.chromium.launch(
@@ -107,11 +121,11 @@ def get_product_details_playwright(url: str, delay: float = BASE_DELAY) -> Tuple
                             "--no-sandbox",  # Allows running without sandboxing on headless servers
                         ]
                     )
-                    
+
                     # Create a desktop-like browser context before opening the page
                     context = browser.new_context(**build_desktop_context_kwargs())
                     page = context.new_page()
-                    
+
                     # Set extra HTTP headers to look even more like real browser
                     page.set_extra_http_headers({
                         "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -122,20 +136,20 @@ def get_product_details_playwright(url: str, delay: float = BASE_DELAY) -> Tuple
                     context.add_cookies([
                         {"name": "i18n-prefs", "value": "EUR", "url": "https://www.amazon.it"}
                     ])
-                    
+
                     # Navigate to page - wait for network to be idle (all requests finished)
                     page.goto(url, wait_until="networkidle", timeout=20000)
-                    
+
                     # Simulate human behavior - wait a bit before extracting data
                     sleep_with_jitter(random.uniform(1.0, 2.5))
-                    
+
                     # Get final HTML (now includes all JS-rendered content)
                     html = page.content()
                     soup = BeautifulSoup(html, "html.parser")
                     logger.debug("[Playwright] page.url=%s page.title=%s html_length=%s", page.url, page.title(), len(html))
                     log_html_id_presence("Playwright", html)
                     log_html_selector_state("Playwright", url, soup)
-                    
+
                     # Check if we got captcha'd
                     if is_captcha_page(None, soup):
                         logger.warning(f"Captcha detected with Playwright for {url}")
@@ -144,19 +158,19 @@ def get_product_details_playwright(url: str, delay: float = BASE_DELAY) -> Tuple
                         if attempt < MAX_RETRIES - 1:
                             sleep_with_jitter(RETRY_DELAY * (attempt + 1))
                         continue
-                    
+
                     # Extract data only from product containers
                     asin, name, price_whole, price_fraction, discount, img_url = extract_scoped_product_details(
                         url, soup, "Playwright"
                     )
-                    
+
                     context.close()
                     browser.close()
 
                     log_scrape_result("Playwright", url, asin, name, price_whole, price_fraction, discount, img_url)
                     sleep_with_jitter(delay)
                     return "0", asin, name, price_whole, price_fraction, discount, img_url
-            
+
             except Exception as e:
                 logger.error(f"Playwright error on attempt {attempt + 1}: {str(e)}")
                 if browser:
@@ -164,15 +178,17 @@ def get_product_details_playwright(url: str, delay: float = BASE_DELAY) -> Tuple
                         browser.close()
                     except:
                         pass
-                
+
                 if attempt < MAX_RETRIES - 1:
                     sleep_with_jitter(RETRY_DELAY * (attempt + 1))
-        
+
         return "-1", "", "", "", "", "", ""
-    
+
     except Exception as e:
         logger.error(f"Playwright fatal error: {str(e)}")
         return "-1", "", "", "", "", "", ""
+    finally:
+        _playwright_semaphore.release()
 
 
 def get_product_details(
@@ -427,13 +443,14 @@ def log_raw_html_on_missing_container(source: str, html: str, limit: int = 0) ->
     """Dump the received HTML when the expected product containers are missing."""
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     dump_path = os.path.join(project_root, "amazon_raw.html")
-    payload = html[:limit] if limit and limit > 0 else html
+    cap = limit if limit and limit > 0 else _MAX_HTML_DUMP_BYTES
+    payload = html[:cap]
 
     try:
         with open(dump_path, "w", encoding="utf-8") as dump_file:
             dump_file.write(f"<!-- source: {source} -->\n")
             dump_file.write(payload)
-        logger.warning("[%s] raw HTML saved to %s", source, dump_path)
+        logger.warning("[%s] raw HTML saved to %s (%d/%d bytes)", source, dump_path, len(payload), len(html))
     except OSError as exc:
         logger.warning("[%s] failed to save raw HTML to %s: %s", source, dump_path, exc)
 
