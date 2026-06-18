@@ -112,6 +112,8 @@ location /PriceTracker/ {
 - IP rotation
 - Better Price Graphs
 - Notifications for product price decrease
+- Research by ASIN
+- Research by name (list of possible products)
 
 ## License
 
