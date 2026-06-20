@@ -119,6 +119,10 @@ location /PriceTracker/ {
 - International Amazon
 - Best price comparison with other sites
 
+## Possible issues
+
+- Max bookmark limit 
+
 
 ## License
 
