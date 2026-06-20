@@ -6,13 +6,24 @@ from flask_wtf import CSRFProtect
 from flask_wtf.csrf import generate_csrf
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_login import (
+    LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+)
+from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3
 import os
 import re
-from datetime import date, datetime as dt
+import secrets
+import smtplib
+from email.message import EmailMessage
+from email import utils as email_utils
+from datetime import date, datetime as dt, timezone
 import uuid
 from urllib.parse import urlparse
 from werkzeug.middleware.proxy_fix import ProxyFix
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -109,6 +120,129 @@ csrf = CSRFProtect()
 csrf.init_app(app)
 
 # ---------------------------------------------------------------------------
+# User accounts — Flask-Login. Bookmarks are owned either by a logged-in
+# user (user_id) or, for anonymous visitors, by the session_id cookie.
+# ---------------------------------------------------------------------------
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = "login"
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class User(UserMixin):
+    def __init__(self, id, email, email_verified=False):
+        self.id = str(id)
+        self.email = email
+        self.email_verified = bool(email_verified)
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT id, email, email_verified FROM users WHERE id = ?", (user_id,))
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return User(row["id"], row["email"], row["email_verified"])
+
+
+def _bookmark_owner():
+    """Return (column, value) identifying who owns a bookmark row."""
+    if current_user.is_authenticated:
+        return "user_id", current_user.id
+    session.permanent = True
+    if 'session_id' not in session:
+        session['session_id'] = str(uuid.uuid4())
+    return "session_id", session['session_id']
+
+
+def _migrate_session_bookmarks(db, user_id):
+    """Attach the current anonymous session's bookmarks to the account
+    that just logged in/signed up, skipping any asin already saved there."""
+    session_id = session.get("session_id")
+    if not session_id:
+        return
+    cursor = db.cursor()
+    cursor.execute(
+        '''DELETE FROM user_bookmarks WHERE session_id = ? AND asin IN (
+               SELECT asin FROM user_bookmarks WHERE user_id = ?
+           )''',
+        (session_id, user_id)
+    )
+    cursor.execute(
+        "UPDATE user_bookmarks SET user_id = ?, session_id = NULL WHERE session_id = ?",
+        (user_id, session_id)
+    )
+    db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Email sending (SMTP) — used for email verification and password reset.
+# Credentials come from environment variables, never hardcoded.
+# ---------------------------------------------------------------------------
+def send_email(to_address, subject, body):
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = os.environ["MAIL_SENDER"]
+    msg["To"] = to_address
+    msg["Date"] = email_utils.formatdate(localtime=True)
+    msg["Message-ID"] = email_utils.make_msgid()
+    msg.set_content(body)
+
+    host = os.environ["SMTP_HOST"]
+    port = int(os.environ["SMTP_PORT"])
+    login = os.environ["SMTP_LOGIN"]
+    key = os.environ["SMTP_PASSWORD"]
+
+    with smtplib.SMTP(host, port) as server:
+        server.starttls()
+        server.login(login, key)
+        server.send_message(msg)
+
+
+def _new_token():
+    return secrets.token_urlsafe(32)
+
+
+def _send_verification_email(db, user_id, email):
+    token = _new_token()
+    expires = dt.now(timezone.utc) + timedelta(hours=24)
+    cursor = db.cursor()
+    cursor.execute(
+        "UPDATE users SET verify_token = ?, verify_token_expires = ? WHERE id = ?",
+        (token, expires.isoformat(), user_id)
+    )
+    db.commit()
+
+    verify_url = url_for("verify_email", token=token, _external=True)
+    send_email(
+        email,
+        "Verify your account - Amazon Price Tracker",
+        f"Confirm your email by clicking this link (valid for 24 hours):\n\n{verify_url}"
+    )
+
+
+def _send_reset_email(db, user_id, email):
+    token = _new_token()
+    expires = dt.now(timezone.utc) + timedelta(hours=1)
+    cursor = db.cursor()
+    cursor.execute(
+        "UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?",
+        (token, expires.isoformat(), user_id)
+    )
+    db.commit()
+
+    reset_url = url_for("reset_password", token=token, _external=True)
+    send_email(
+        email,
+        "Reset your password - Amazon Price Tracker",
+        f"Reset your password by clicking this link (valid for 1 hour):\n\n{reset_url}\n\n"
+        "If you didn't request this, you can safely ignore this email."
+    )
+
+# ---------------------------------------------------------------------------
 # Rate limiting — Cloudflare forwards real IP in X-Forwarded-For.
 # ProxyFix (already configured above) rewrites REMOTE_ADDR before Limiter
 # reads it, so get_remote_address() sees the correct client IP.
@@ -202,20 +336,17 @@ def close_db(exception):
 
 @app.route("/")
 def home():
-    session.permanent = True
-    # Ensure a stable session identifier for anonymous users
-    if 'session_id' not in session:
-        session['session_id'] = str(uuid.uuid4())
+    owner_col, owner_val = _bookmark_owner()
 
     db = get_db()
     cursor = db.cursor()
 
-    # Load bookmarks for this session_id from the DB
+    # Load bookmarks owned by this account (or anonymous session) from the DB
     cursor.execute(
-        "SELECT p.asin, p.name, p.price, p.discount, p.img_src "
-        "FROM products p JOIN user_bookmarks ub ON p.asin = ub.asin "
-        "WHERE ub.session_id = ? ORDER BY ub.created_at DESC",
-        (session['session_id'],)
+        f"SELECT p.asin, p.name, p.price, p.discount, p.img_src "
+        f"FROM products p JOIN user_bookmarks ub ON p.asin = ub.asin "
+        f"WHERE ub.{owner_col} = ? ORDER BY ub.created_at DESC",
+        (owner_val,)
     )
     rows = cursor.fetchall()
 
@@ -231,6 +362,175 @@ def home():
         })
 
     return render_template("main_page.html", bookmarks = bookmarks)
+
+
+@app.route("/signup", methods=["GET", "POST"])
+@limiter.limit("10 per minute")
+def signup():
+    if current_user.is_authenticated:
+        return redirect(url_for("home"))
+
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+
+        if not _EMAIL_RE.match(email) or len(password) < 8:
+            return render_template(
+                "signup.html",
+                error="Inserisci un'email valida e una password di almeno 8 caratteri."
+            )
+
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
+        if cursor.fetchone():
+            return render_template("signup.html", error="Email già registrata.")
+
+        cursor.execute(
+            "INSERT INTO users (email, password_hash) VALUES (?, ?)",
+            (email, generate_password_hash(password))
+        )
+        db.commit()
+        user_id = cursor.lastrowid
+
+        _migrate_session_bookmarks(db, user_id)
+        _send_verification_email(db, user_id, email)
+        login_user(User(user_id, email, email_verified=False))
+        return redirect(url_for("home"))
+
+    return render_template("signup.html")
+
+
+@app.route("/verify-email/<token>")
+def verify_email(token):
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT id, verify_token_expires FROM users WHERE verify_token = ?",
+        (token,)
+    )
+    row = cursor.fetchone()
+
+    if row is None:
+        return render_template("error.html", error_code="-5")
+
+    expires = dt.fromisoformat(row["verify_token_expires"])
+    if dt.now(timezone.utc) > expires:
+        return render_template("error.html", error_code="-6")
+
+    cursor.execute(
+        "UPDATE users SET email_verified = 1, verify_token = NULL, verify_token_expires = NULL WHERE id = ?",
+        (row["id"],)
+    )
+    db.commit()
+
+    if current_user.is_authenticated and current_user.id == str(row["id"]):
+        current_user.email_verified = True
+
+    return redirect(url_for("home"))
+
+
+@app.route("/resend-verification", methods=["POST"])
+@login_required
+@limiter.limit("5 per minute")
+def resend_verification():
+    if not current_user.email_verified:
+        db = get_db()
+        _send_verification_email(db, current_user.id, current_user.email)
+    return redirect(url_for("home"))
+
+
+@app.route("/login", methods=["GET", "POST"])
+@limiter.limit("10 per minute")
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("home"))
+
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT id, email, password_hash, email_verified FROM users WHERE email = ?", (email,))
+        row = cursor.fetchone()
+
+        if row is None or not check_password_hash(row["password_hash"], password):
+            return render_template("login.html", error="Email o password non corretti.")
+
+        _migrate_session_bookmarks(db, row["id"])
+        login_user(User(row["id"], row["email"], row["email_verified"]))
+        return redirect(url_for("home"))
+
+    return render_template("login.html")
+
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+@limiter.limit("5 per minute")
+def forgot_password():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT id, email FROM users WHERE email = ?", (email,))
+        row = cursor.fetchone()
+        if row:
+            _send_reset_email(db, row["id"], row["email"])
+
+        # Always show the same message, whether or not the email exists,
+        # so this endpoint can't be used to enumerate registered accounts.
+        return render_template(
+            "forgot_password.html",
+            sent=True
+        )
+
+    return render_template("forgot_password.html")
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+@limiter.limit("10 per minute")
+def reset_password(token):
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT id, reset_token_expires FROM users WHERE reset_token = ?",
+        (token,)
+    )
+    row = cursor.fetchone()
+
+    if row is None:
+        return render_template("error.html", error_code="-5")
+
+    expires = dt.fromisoformat(row["reset_token_expires"])
+    if dt.now(timezone.utc) > expires:
+        return render_template("error.html", error_code="-6")
+
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        if len(password) < 8:
+            return render_template(
+                "reset_password.html",
+                token=token,
+                error="La password deve avere almeno 8 caratteri."
+            )
+
+        cursor.execute(
+            "UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expires = NULL WHERE id = ?",
+            (generate_password_hash(password), row["id"])
+        )
+        db.commit()
+        return redirect(url_for("login"))
+
+    return render_template("reset_password.html", token=token)
+
+
+@app.route("/logout", methods=["POST"])
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for("home"))
+
 
 @app.route("/query", methods=['POST'])
 @limiter.limit("10 per minute")
@@ -306,12 +606,8 @@ def bookmark_func():
     db = get_db()
     cursor = db.cursor()
 
-    session.permanent = True #Permanent cookies
     MAX_BOOKMARKS = 4 #Limit of Bookmarks for a user
-
-    # Ensure session_id exists
-    if 'session_id' not in session:
-        session['session_id'] = str(uuid.uuid4())
+    owner_col, owner_val = _bookmark_owner()
 
     prod_details = request.get_json() #Gets product details from product.html
     price_text = f"{prod_details.get('price_whole')}{prod_details.get('price_fraction')}"
@@ -319,15 +615,15 @@ def bookmark_func():
         price = float(price_text.replace(",", "."))
     except (TypeError, ValueError):
         return jsonify({"status": "price_not_found"})
-    # Check if this asin is already bookmarked by this session
-    cursor.execute('SELECT COUNT(*) AS cnt FROM user_bookmarks WHERE session_id = ? AND asin = ?',
-                   (session['session_id'], prod_details.get('ASIN')))
+    # Check if this asin is already bookmarked by this owner
+    cursor.execute(f'SELECT COUNT(*) AS cnt FROM user_bookmarks WHERE {owner_col} = ? AND asin = ?',
+                   (owner_val, prod_details.get('ASIN')))
     exists = cursor.fetchone()['cnt']
     if exists:
         return jsonify({"status": "duplicate"})
 
     # Enforce per-user bookmark limit before inserting
-    cursor.execute('SELECT COUNT(*) AS cnt FROM user_bookmarks WHERE session_id = ?', (session['session_id'],))
+    cursor.execute(f'SELECT COUNT(*) AS cnt FROM user_bookmarks WHERE {owner_col} = ?', (owner_val,))
     cnt = cursor.fetchone()['cnt']
     if cnt >= MAX_BOOKMARKS:
         return jsonify({"status": "full"})
@@ -345,10 +641,10 @@ def bookmark_func():
         )
     )
 
-    # Add mapping for this session -> asin
+    # Add mapping for this owner -> asin
     cursor.execute(
-        'INSERT INTO user_bookmarks (session_id, asin, created_at) VALUES (?, ?, ?)',
-        (session['session_id'], prod_details.get('ASIN'), dt.utcnow().isoformat())
+        f'INSERT INTO user_bookmarks ({owner_col}, asin, created_at) VALUES (?, ?, ?)',
+        (owner_val, prod_details.get('ASIN'), dt.utcnow().isoformat())
     )
 
     # Add a point for graphing
@@ -383,13 +679,11 @@ def give_bookmark_info(asin):
 @app.route("/unbook", methods=["POST"])
 @limiter.limit("30 per minute")
 def unbook_func():
-    # Remove mapping only for this anonymous session; delete product when unused
+    # Remove mapping only for this owner; delete product when unused
     db = get_db()
     cursor = db.cursor()
 
-    # Ensure session_id exists
-    if 'session_id' not in session:
-        session['session_id'] = str(uuid.uuid4())
+    owner_col, owner_val = _bookmark_owner()
 
     data = request.get_json(silent=True)
     if isinstance(data, str):
@@ -402,8 +696,8 @@ def unbook_func():
     if not asin_to_delete:
         return jsonify({"error": "missing ASIN"}), 400
 
-    # Remove only the mapping for this session
-    cursor.execute('DELETE FROM user_bookmarks WHERE session_id = ? AND asin = ?', (session['session_id'], asin_to_delete))
+    # Remove only the mapping for this owner
+    cursor.execute(f'DELETE FROM user_bookmarks WHERE {owner_col} = ? AND asin = ?', (owner_val, asin_to_delete))
 
     # If no other mappings exist for this asin, remove product and its graph data
     cursor.execute('SELECT COUNT(*) AS cnt FROM user_bookmarks WHERE asin = ?', (asin_to_delete,))

@@ -2,6 +2,8 @@
 
 A self-hosted web application for tracking Amazon Italy product prices over time. Paste a product URL, save it as a bookmark, and the app records the price daily so you can visualize how it changes. The bookmarks are currenly stored via sessions to avoid having to create an account; Might add Sign up in the future for the possibility to keep stored products permanently.
 
+Test it out: coppa7homelab.com/PriceTracker
+
 ## Features
 
 - Price history charts for bookmarked products
@@ -108,12 +110,15 @@ location /PriceTracker/ {
 
 ## Possible future additions
 
-- Signup / Login for permanent bookmarks
+- ~~Signup / Login for permanent bookmarks~~ Google / Github login
 - IP rotation
 - Better Price Graphs
 - Notifications for product price decrease
 - Research by ASIN
 - Research by name (list of possible products)
+- International Amazon
+- Best price comparison with other sites
+
 
 ## License
 

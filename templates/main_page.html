@@ -47,8 +47,35 @@
             <a href="{{ url_for('home') }}" class="text-white text-2xl font-bold tracking-tight hover:text-amber-300 transition-colors">
                 Amazon Price Tracker
             </a>
+            <div class="ml-auto flex items-center gap-3 text-sm">
+                {% if current_user.is_authenticated %}
+                    <span class="text-slate-300">{{ current_user.email }}</span>
+                    <form action="{{ url_for('logout') }}" method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="text-white font-semibold hover:text-amber-300 transition-colors cursor-pointer">
+                            Log out
+                        </button>
+                    </form>
+                {% else %}
+                    <a href="{{ url_for('login') }}" class="text-white font-semibold hover:text-amber-300 transition-colors">Log in</a>
+                    <a href="{{ url_for('signup') }}" class="text-white font-semibold hover:text-amber-300 transition-colors">Sign up</a>
+                {% endif %}
+            </div>
         </div>
     </header>
+
+    {% if current_user.is_authenticated and not current_user.email_verified %}
+        <div class="bg-amber-50 border-b border-amber-200 px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-center gap-2 text-sm text-amber-800">
+            <span class="material-icons text-amber-500 text-base">mail</span>
+            <span>Please verify your email address.</span>
+            <form action="{{ url_for('resend_verification') }}" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="font-semibold underline hover:text-amber-900 cursor-pointer">
+                    Resend verification email
+                </button>
+            </form>
+        </div>
+    {% endif %}
 
     <!-- Search Section -->
     <section class="hero-gradient" style="min-height: 160px; display: flex; align-items: center; padding-bottom: 40px;">

@@ -38,6 +38,8 @@
                     {% if error_code == "-1" %}wifi_off
                     {% elif error_code == "-2" %}lock
                     {% elif error_code == "-4" %}link_off
+                    {% elif error_code == "-5" %}block
+                    {% elif error_code == "-6" %}schedule
                     {% else %}error_outline
                     {% endif %}
                 </span>
@@ -60,6 +62,10 @@
                 {% elif error_code == "-4" %}
                     Invalid URL. Only Amazon Italy product pages are supported.<br>
                     <span class="text-xs font-mono text-slate-400 mt-1 block">amazon.it/dp/...</span>
+                {% elif error_code == "-5" %}
+                    This link is invalid. It may have already been used.
+                {% elif error_code == "-6" %}
+                    This link has expired. Please request a new one.
                 {% else %}
                     An unexpected error occurred. Please try again.
                 {% endif %}
