@@ -29,12 +29,14 @@ CREATE TABLE IF NOT EXISTS users (
     verify_token_expires DATETIME,
     reset_token TEXT,
     reset_token_expires DATETIME,
+    oauth_provider TEXT,
+    oauth_id TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 )
 ''')
 
-# users table already existed before verification/reset support was added;
-# add the missing columns for databases created by an earlier version.
+# users table already existed before verification/reset/OAuth support was
+# added; add the missing columns for databases created by an earlier version.
 cursor.execute("PRAGMA table_info(users)")
 existing_user_columns = [row[1] for row in cursor.fetchall()]
 _user_columns_to_add = {
@@ -43,6 +45,8 @@ _user_columns_to_add = {
     "verify_token_expires": "DATETIME",
     "reset_token": "TEXT",
     "reset_token_expires": "DATETIME",
+    "oauth_provider": "TEXT",
+    "oauth_id": "TEXT",
 }
 for column_name, column_def in _user_columns_to_add.items():
     if column_name not in existing_user_columns:

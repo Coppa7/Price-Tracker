@@ -10,6 +10,7 @@ from flask_login import (
     LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 )
 from werkzeug.security import generate_password_hash, check_password_hash
+from authlib.integrations.flask_client import OAuth
 import sqlite3
 import os
 import re
@@ -128,6 +129,30 @@ login_manager.init_app(app)
 login_manager.login_view = "login"
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# ---------------------------------------------------------------------------
+# OAuth (Google / GitHub) — Authlib. Client credentials come from the
+# environment; routes are registered further down once helpers are defined.
+# ---------------------------------------------------------------------------
+oauth = OAuth(app)
+
+oauth.register(
+    name="google",
+    client_id=os.environ.get("GOOGLE_CLIENT_ID"),
+    client_secret=os.environ.get("GOOGLE_CLIENT_SECRET"),
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={"scope": "openid email profile"},
+)
+
+oauth.register(
+    name="github",
+    client_id=os.environ.get("GITHUB_CLIENT_ID"),
+    client_secret=os.environ.get("GITHUB_CLIENT_SECRET"),
+    access_token_url="https://github.com/login/oauth/access_token",
+    authorize_url="https://github.com/login/oauth/authorize",
+    api_base_url="https://api.github.com/",
+    client_kwargs={"scope": "user:email"},
+)
 
 
 class User(UserMixin):
@@ -529,6 +554,78 @@ def reset_password(token):
 @login_required
 def logout():
     logout_user()
+    return redirect(url_for("home"))
+
+
+_OAUTH_PROVIDERS = ("google", "github")
+
+
+@app.route("/auth/<provider>")
+def oauth_login(provider):
+    if provider not in _OAUTH_PROVIDERS:
+        return redirect(url_for("error_page", error_code="-5"))
+
+    redirect_uri = url_for("oauth_callback", provider=provider, _external=True)
+    return oauth.create_client(provider).authorize_redirect(redirect_uri)
+
+
+@app.route("/auth/<provider>/callback")
+def oauth_callback(provider):
+    if provider not in _OAUTH_PROVIDERS:
+        return redirect(url_for("error_page", error_code="-5"))
+
+    client = oauth.create_client(provider)
+    token = client.authorize_access_token()
+
+    if provider == "google":
+        profile = token.get("userinfo") or client.get("userinfo").json()
+        oauth_id = profile["sub"]
+        email = profile["email"].strip().lower()
+    else:  # github
+        profile = client.get("user").json()
+        oauth_id = str(profile["id"])
+        email = profile.get("email")
+        if not email:
+            emails = client.get("user/emails").json()
+            primary = next((e["email"] for e in emails if e.get("primary")), None)
+            email = primary or emails[0]["email"]
+        email = email.strip().lower()
+
+    db = get_db()
+    cursor = db.cursor()
+
+    cursor.execute(
+        "SELECT id FROM users WHERE oauth_provider = ? AND oauth_id = ?",
+        (provider, oauth_id)
+    )
+    row = cursor.fetchone()
+
+    if row is not None:
+        user_id = row["id"]
+    else:
+        # Link to an existing account with the same email, otherwise create one.
+        cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
+        existing = cursor.fetchone()
+        if existing is not None:
+            user_id = existing["id"]
+            cursor.execute(
+                "UPDATE users SET oauth_provider = ?, oauth_id = ?, email_verified = 1 WHERE id = ?",
+                (provider, oauth_id, user_id)
+            )
+        else:
+            # Password login is disabled for OAuth-only accounts; this hash
+            # is random and never used to authenticate.
+            placeholder_hash = generate_password_hash(secrets.token_urlsafe(32))
+            cursor.execute(
+                '''INSERT INTO users (email, password_hash, oauth_provider, oauth_id, email_verified)
+                   VALUES (?, ?, ?, ?, 1)''',
+                (email, placeholder_hash, provider, oauth_id)
+            )
+            user_id = cursor.lastrowid
+        db.commit()
+
+    _migrate_session_bookmarks(db, user_id)
+    login_user(User(user_id, email, email_verified=True))
     return redirect(url_for("home"))
 
 
