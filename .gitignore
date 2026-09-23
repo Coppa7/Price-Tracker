@@ -39,6 +39,12 @@ pnpm-debug.log*
 .env
 .env.*
 
+# Secrets / service account keys
+credentials/
+
+# Deployment configs (server-specific)
+deploy/
+
 # Editors / IDE
 .vscode/
 .idea/

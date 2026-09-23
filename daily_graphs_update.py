@@ -86,3 +86,8 @@ def update_all(delay_seconds: float = 1.0):
 
 if __name__ == '__main__':
     update_all()
+    try:
+        from sheets_sync import sync_tables_to_sheets
+        sync_tables_to_sheets()
+    except Exception as e:
+        print(f'Google Sheets sync failed: {e}')
