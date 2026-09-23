@@ -35,6 +35,13 @@
                 <p class="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-6">{{ error }}</p>
             {% endif %}
 
+            {% if has_session_bookmarks %}
+                <p class="text-amber-700 text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-6">
+                    Attenzione: hai dei bookmark salvati su questo dispositivo non ancora collegati a un account.
+                    Se l'account con cui accedi ha già dei bookmark, quelli attuali verranno cancellati.
+                </p>
+            {% endif %}
+
             <form method="POST">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div>

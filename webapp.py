@@ -184,22 +184,26 @@ def _bookmark_owner():
 
 
 def _migrate_session_bookmarks(db, user_id):
-    """Attach the current anonymous session's bookmarks to the account
-    that just logged in/signed up, skipping any asin already saved there."""
+    """Attach the current anonymous session's bookmarks to the account that
+    just logged in/signed up. If the account has no bookmarks yet, the
+    session's bookmarks become the account's. If the account already has
+    bookmarks, those take priority and the session's are discarded instead
+    of being merged (merging could silently push the account over the
+    per-user bookmark limit)."""
     session_id = session.get("session_id")
     if not session_id:
         return
     cursor = db.cursor()
-    cursor.execute(
-        '''DELETE FROM user_bookmarks WHERE session_id = ? AND asin IN (
-               SELECT asin FROM user_bookmarks WHERE user_id = ?
-           )''',
-        (session_id, user_id)
-    )
-    cursor.execute(
-        "UPDATE user_bookmarks SET user_id = ?, session_id = NULL WHERE session_id = ?",
-        (user_id, session_id)
-    )
+    cursor.execute("SELECT COUNT(*) AS cnt FROM user_bookmarks WHERE user_id = ?", (user_id,))
+    account_has_bookmarks = cursor.fetchone()["cnt"] > 0
+
+    if account_has_bookmarks:
+        cursor.execute("DELETE FROM user_bookmarks WHERE session_id = ?", (session_id,))
+    else:
+        cursor.execute(
+            "UPDATE user_bookmarks SET user_id = ?, session_id = NULL WHERE session_id = ?",
+            (user_id, session_id)
+        )
     db.commit()
 
 
@@ -471,23 +475,32 @@ def login():
     if current_user.is_authenticated:
         return redirect(url_for("home"))
 
+    db = get_db()
+    cursor = db.cursor()
+    session_id = session.get("session_id")
+    has_session_bookmarks = False
+    if session_id:
+        cursor.execute("SELECT COUNT(*) AS cnt FROM user_bookmarks WHERE session_id = ?", (session_id,))
+        has_session_bookmarks = cursor.fetchone()["cnt"] > 0
+
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
 
-        db = get_db()
-        cursor = db.cursor()
         cursor.execute("SELECT id, email, password_hash, email_verified FROM users WHERE email = ?", (email,))
         row = cursor.fetchone()
 
         if row is None or not check_password_hash(row["password_hash"], password):
-            return render_template("login.html", error="Email o password non corretti.")
+            return render_template(
+                "login.html", error="Email o password non corretti.",
+                has_session_bookmarks=has_session_bookmarks,
+            )
 
         _migrate_session_bookmarks(db, row["id"])
         login_user(User(row["id"], row["email"], row["email_verified"]))
         return redirect(url_for("home"))
 
-    return render_template("login.html")
+    return render_template("login.html", has_session_bookmarks=has_session_bookmarks)
 
 
 @app.route("/forgot-password", methods=["GET", "POST"])
@@ -703,7 +716,7 @@ def bookmark_func():
     db = get_db()
     cursor = db.cursor()
 
-    MAX_BOOKMARKS = 4 #Limit of Bookmarks for a user
+    MAX_BOOKMARKS = 15 #Limit of Bookmarks for a user
     owner_col, owner_val = _bookmark_owner()
 
     prod_details = request.get_json() #Gets product details from product.html
