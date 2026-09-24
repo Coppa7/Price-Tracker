@@ -5,3 +5,6 @@ package-lock.json linguist-generated=true
 # Runtime/cache data that should not affect language stats
 cache_dir/** linguist-generated=true
 database_dir/** linguist-generated=true
+
+# Shell scripts must keep LF endings (CRLF breaks them on Linux/cron)
+*.sh text eol=lf
